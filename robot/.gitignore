@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.venv/
+public/assets/
+tools/cache/
+outputs/
+*.log
+__pycache__/
+.env
+.env.*
+.modal.toml
+*.pem

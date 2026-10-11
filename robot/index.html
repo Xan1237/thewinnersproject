@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>G1 · Кофе</title></head>
+<body>
+  <div id="stage"></div>
+  <header><div class="wordmark">G1 <span>/</span> Кофе</div><p id="subtitle">Берёт чашку. Поднимает. Возвращает на стол.</p></header>
+  <aside class="views"><div class="mode-buttons"><button id="demo" class="selected">Демо</button><button id="manual">Управлять · WASD</button></div><div><button id="wide" class="selected">Общий план</button><button id="close">Рука и чашка</button></div><details class="api-panel"><summary>API для LLM</summary><input id="api-token" aria-label="Токен локального API" type="password" placeholder="Токен, если задан" autocomplete="off"><button id="api-connect">Подключить API</button><p id="api-status">Локальный API · без доступа к Modal</p></details></aside>
+  <div id="loading">Собираем робота…</div>
+  <footer>
+    <div class="status"><span class="dot"></span><span id="phase">Готовится</span><span id="clock">0.0 / 12.0 с</span></div>
+    <input id="timeline" aria-label="Позиция воспроизведения" type="range" min="0" max="12" step="0.01" value="0">
+    <div class="controls"><button id="play">Пауза</button><button id="replay">Сначала ↺</button><label><input id="loop" type="checkbox" checked> Повторять</label><span class="hint">Перетащи сцену, чтобы повернуть камеру</span></div>
+    <p id="provenance">Загрузка модели…</p>
+  </footer>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

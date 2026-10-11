@@ -1,0 +1,21 @@
+{
+  "name": "g1-coffee-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm:api\" \"npm:viewer\"",
+    "viewer": "vite",
+    "api": "node server/api.js",
+    "test": "node --test server/*.test.js",
+    "build": "vite build",
+    "assets": "uv run --with numpy tools/build_g1.py",
+    "motion": "uv run tools/generate_motion.py"
+  },
+  "dependencies": {
+    "concurrently": "^9.2.5",
+    "three": "^0.180.0",
+    "vite": "^7.1.0",
+    "ws": "^8.22.0"
+  }
+}
