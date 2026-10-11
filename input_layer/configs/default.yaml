@@ -1,0 +1,23 @@
+# Run with: python -m winners.arena --config configs/default.yaml --out runs/run1
+# API keys come from environment variables only:
+#   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY
+env:
+  type: mock-reach
+
+run:
+  episodes: 10
+  seed0: 0
+  decision_interval: 1   # query the model every N control ticks; its action is held in between
+  max_steps: 200
+
+policies:
+  # Offline baseline, needs no keys:
+  - type: scripted-greedy
+    name: scripted-greedy
+    noise: 0.1
+
+  # Uncomment the models you have keys for:
+  # - {type: claude, model: claude-sonnet-5-5}
+  # - {type: gemini, model: gemini-2.5-flash}
+  # - {type: openai, model: gpt-4o}
+  # - {type: local, model: llama3.1, base_url: "http://localhost:11434/v1"}
