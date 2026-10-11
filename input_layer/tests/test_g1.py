@@ -282,8 +282,9 @@ def test_g1_arena_config_builds_without_network():
     assert cfg["env"]["type"] == "g1-sim"
     assert isinstance(build_env_factory(cfg["env"])(), G1SimEnv)
     pols = {p["name"]: build_policy(p) for p in cfg["policies"]}
-    assert pols["qwen-27b"].extra_body["provider"]["allow_fallbacks"] is False
-    assert pols["qwen-27b"].api_key_env == "OPENROUTER_API_KEY"
-    assert pols["gpt-6-luna"].model == "openai/gpt-6-luna"
-    assert pols["qwen-27b"].extra_body["reasoning"] == {"enabled": False}
-    assert pols["claude-haiku"].obs_names[3] == "goal_forward"
+    from winners.policies.decision import JevOrchestratedPolicy
+
+    assert len(pols) >= 5 and all(isinstance(p, JevOrchestratedPolicy) for p in pols.values())
+    assert {p.jev_model for p in pols.values()} == {"typesafe/jev-1.13"}  # same decision model for all
+    assert len({p.orchestrator for p in pols.values()}) == len(pols)  # different orchestrators
+    assert all(p.api_key_env == "OPENROUTER_API_KEY" for p in pols.values())

@@ -104,7 +104,12 @@ class G1SimEnv:
         return self._observation(data["observation"])
 
     def step(
-        self, action: list[float], *, label: str | None = None, model: str | None = None
+        self,
+        action: list[float],
+        *,
+        label: str | None = None,
+        model: str | None = None,
+        detail: dict[str, Any] | None = None,
     ) -> tuple[Observation, float, bool, dict[str, Any]]:
         if self.session_id is None:
             raise G1SimError("step() called before reset()")
@@ -114,6 +119,8 @@ class G1SimEnv:
         }
         if label:
             body["label"] = label
+        if detail:
+            body["detail"] = detail
         data = self._request("POST", f"/sim/sessions/{self.session_id}/step", body)
         info = dict(data.get("info") or {})
         info["success"] = bool(info.get("success", False))

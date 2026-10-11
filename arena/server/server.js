@@ -95,9 +95,11 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
           if (!Array.isArray(body.action)) return send(res, 400, { error: 'action must be an array' });
           const model = body.model ? String(body.model).slice(0, 64) : s.model;
           const label = body.label == null ? null : String(body.label).slice(0, 200);
+          let detail = null;
+          if (body.detail != null) { const j = JSON.stringify(body.detail); if (j.length <= 2000) detail = body.detail; }
           const r = s.step(body.action);
           broadcast({
-            type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label,
+            type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label, detail, pose: typeof body.pose === 'string' ? body.pose.slice(0, 32) : null,
             position: r.info.position, heading: r.info.heading, y: r.info.y, path: r.path, joints: r.info.joints,
             holding: r.info.holding, collided: r.info.collided, distance: r.info.distance, reward: r.reward, done: r.done,
             success: r.info.success, reason: r.info.reason,

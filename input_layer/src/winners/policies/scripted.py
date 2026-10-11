@@ -8,6 +8,13 @@ import random
 from winners.schema import Action, ActionSpec, Observation, Step
 
 
+
+def _is_pickup(task: str) -> bool:
+    """Tasks reach the policy as the sim's description ("... pick up the coffee cup ..."), or as the id."""
+    t = task.lower()
+    return any(w in t for w in ("fetch", "pick up", "coffee"))
+
+
 class GreedyReachPolicy:
     """Heads straight for the goal of MockReachEnv (state = x, y, gx, gy), with optional noise."""
 
@@ -56,7 +63,7 @@ class GoalSeekPolicy:
         self, obs: Observation, task: str, action_spec: ActionSpec, history: list[Step]
     ) -> Action:
         _x, _z, _heading, fwd, right, dist, _holding, _frac = obs.state[:8]
-        if "fetch" in task.lower() and dist <= self.interact_dist:
+        if _is_pickup(task) and dist <= self.interact_dist:
             return Action(values=[0.0, 0.0, 0.0, 1.0], label="grab the coffee")
         angle = math.atan2(right, fwd)  # 0 = dead ahead, +pi/2 = goal on the right
         turn = -self.turn_gain * angle

@@ -37,6 +37,10 @@ def build_policy(cfg: dict[str, Any]) -> Policy:
         return OpenAIPolicy(**cfg)
     if kind == "openrouter":
         return OpenRouterPolicy(**cfg)
+    if kind == "jev":
+        from winners.policies.decision import JevOrchestratedPolicy
+
+        return JevOrchestratedPolicy(**cfg)
     if kind == "local":
         return LocalPolicy(**cfg)
     if kind == "scripted-greedy":

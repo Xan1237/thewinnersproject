@@ -52,3 +52,7 @@ Do not use `gltf-transform optimize`: it joins meshes and drops the node names t
 
 - The sim is kinematic (position, heading, procedural gait), not a physics engine. Treat the data as "level zero".
 - The robot app in `../robot` is untouched; the arena reuses its G1 model and gait.
+
+## Animations
+
+Hand-made clips (sitting on a chair, ...) plug in through `src/animations.js`: `registerClip(name, {joints, pelvisDrop})`, then send `pose: "<name>"` on a step event. Without a registered clip the robot keeps standing, so it never vanishes while an animation is missing.

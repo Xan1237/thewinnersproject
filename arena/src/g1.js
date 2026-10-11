@@ -46,7 +46,7 @@ export class G1 {
     this.group.add(this.ring);
   }
 
-  setJoints(angles) {
+  setJoints(angles, pelvisDrop = 0) {
     for (const [name, v] of this.joints) {
       const a = angles[name] ?? 0;
       const c = Math.min(Math.max(a, v.min), v.max);
@@ -59,6 +59,7 @@ export class G1 {
     for (const foot of this.feet) { this.box.setFromObject(foot); lowest = Math.min(lowest, this.box.min.y); }
     // Keep the soles on the ground: native pelvis Z is vertical.
     if (Number.isFinite(lowest)) this.pelvis.position.z -= lowest - this.group.position.y;
+    this.pelvis.position.z -= pelvisDrop;
   }
 
   handWorld(out = new THREE.Vector3()) {

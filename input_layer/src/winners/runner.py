@@ -46,7 +46,7 @@ def run_episode(
     so the training data has full-rate physics, with `decided` marking real queries.
     """
     reset_kw = {"model": policy.name} if _accepts(env.reset, "model") else {}
-    step_ok = _accepts(env.step, "label", "model")
+    step_ok = _accepts(env.step, "label", "model", "detail")
     obs = env.reset(seed=seed, **reset_kw)
     # after reset: envs that discover their specs from a server only know them now
     safety = SafetyFilter(env.action_spec)
@@ -54,6 +54,7 @@ def run_episode(
     held: list[float] = env.action_spec.hold()
     held_raw: list[float] | None = None
     held_label: str | None = None
+    held_detail: dict[str, Any] | None = None
     latency = cost = 0.0
     flags: list[str] = []
     info: dict = {}
@@ -72,6 +73,7 @@ def run_episode(
             cost = float(action.meta.get("cost_usd", 0.0))
             held_raw = action.values or None
             held_label = action.label
+            held_detail = action.meta.get("detail") if decided else None
             held, flags = safety.sanitize(held_raw)
             if "error" in action.meta:
                 flags = [*flags, "model_error"]
@@ -86,6 +88,8 @@ def run_episode(
             step_kw["label"] = held_label
         if "model" in step_ok:
             step_kw["model"] = policy.name
+        if "detail" in step_ok and decided and held_detail:
+            step_kw["detail"] = held_detail
         obs, reward, done, info = env.step(held, **step_kw)
         total_reward += reward
         steps.append(

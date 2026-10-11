@@ -74,8 +74,16 @@ export class Panel {
     const act = `fwd ${(a[0] ?? 0).toFixed(2)} · right ${(a[1] ?? 0).toFixed(2)} · turn ${(a[2] ?? 0).toFixed(2)}${(a[3] ?? 0) > 0.5 ? ' · GRAB' : ''}`;
     const joints = KEY_JOINTS.filter(k => ev.joints && k in ev.joints).map(k => `<span>${esc(k.replace('_joint', ''))}</span><span>${ev.joints[k].toFixed(3)}</span>`).join('');
     this.addRow(ev.model,
-      `<div class="label">${esc(ev.label || '(no label)')}</div><div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +
+      `<div class="label">${esc(ev.label || '(no label)')}</div>${this.detailHtml(ev.detail)}<div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +
       `<details><summary>motor data</summary><div class="joints">${joints}</div></details>`, '', ev.t);
+  }
+
+  /** Extra decision context from a model: the orchestrator's plan and the decision model's odds. */
+  detailHtml(d) {
+    if (!d) return '';
+    const plan = d.replanned && d.plan ? `<div class="plan"><b>${esc(d.orchestrator || 'orchestrator')}</b> plans: ${esc(d.plan)}</div>` : '';
+    const top = d.jev?.top ? Object.entries(d.jev.top).map(([k, v]) => `<span class="odds"><i style="width:${Math.round(v * 100)}%"></i><em>${esc(k.replace(/_/g, ' '))} ${Math.round(v * 100)}%</em></span>`).join('') : '';
+    return plan + (top ? `<div class="oddsbox"><small>Jev</small>${top}</div>` : '');
   }
 
   addRow(model, html, cls, t = '') {

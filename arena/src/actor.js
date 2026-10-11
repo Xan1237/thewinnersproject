@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { G1 } from './g1.js';
 import { HOLD_POSE, gaitJoints } from '../server/core.js';
+import { getClip } from './animations.js';
 
 const STEP_SAMPLE = 0.1; // seconds between path samples (matches the sim: 5 samples per 0.5 s step)
 const lerpAngle = (a, b, t) => a + (((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * t;
@@ -47,7 +48,7 @@ export class Actor {
     const last = this.keys[this.keys.length - 1];
     ev.path.forEach(([x, z, h, phase, blend], i) => {
       const lastSample = i === ev.path.length - 1;
-      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding });
+      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: ev.pose ?? null });
     });
     this.tagLabels.push({ t: last.t, text: ev.label || '' });
   }
@@ -61,9 +62,10 @@ export class Actor {
     const g = this.g1;
     g.group.position.set(k.x, THREE.MathUtils.damp(g.group.position.y, k.y, 8, Math.max(dt, 1 / 60)), k.z);
     g.group.rotation.y = k.h;
-    const joints = gaitJoints(k.phase, k.blend);
-    if (k.holding) Object.assign(joints, HOLD_POSE);
-    g.setJoints(joints);
+    const clip = getClip(k.pose);
+    const joints = clip ? clip.joints(this.clock, k) : gaitJoints(k.phase, k.blend);
+    if (k.holding && !clip) Object.assign(joints, HOLD_POSE);
+    g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(this.clock, k) : 0);
     if (this.cup) {
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
@@ -82,7 +84,7 @@ export class Actor {
     const k = {
       x: THREE.MathUtils.lerp(a.x, b.x, f), z: THREE.MathUtils.lerp(a.z, b.z, f), h: lerpAngle(a.h, b.h, f),
       phase: THREE.MathUtils.lerp(a.phase, b.phase, f), blend: THREE.MathUtils.lerp(a.blend, b.blend, f), y: b.y,
-      holding: f >= 1 ? b.holding : a.holding,
+      holding: f >= 1 ? b.holding : a.holding, pose: f >= 1 ? b.pose : a.pose,
     };
     if (idle) { k.blend = THREE.MathUtils.damp(this.cur.blend, 0, 6, dt); k.phase = this.cur.phase; }
     this.cur = k;
