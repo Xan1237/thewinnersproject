@@ -16,9 +16,13 @@
 - [x] Launch an isolated sim, farm and viewer; collect real model calls, successful episodes and a real checkpoint.
 - [x] Write short spoken narration without introductions, invented statistics or broad marketing claims.
 - [x] Capture room activity, planner/Jev detail, an actual episode, training and local policy playback.
-- [ ] Generate Vel/Tim lines, verify wording, edit to 240 seconds and add readable captions.
-- [ ] Inspect beginning/middle/end plus transitions; check audio, codecs, duration and full decode.
-- [ ] Commit source/docs only; deliver the local MP4 and source script. Public upload is a separate action.
+- [x] Generate Vel/Tim lines, verify wording, edit to 240 seconds and add readable captions.
+- [x] Inspect beginning/middle/end plus transitions; check audio, codecs, duration and full decode.
+- [x] Commit source/docs only; deliver the local MP4 and source script. Public upload is a separate action.
+
+## Verification
+
+Recorded against main `2acfe28`, using actual provider attempts and five filmed training rounds. The final export is 240.000 seconds at 1920×1080/30fps with H.264/AAC; both audio and video cover the full timeline and the full decode passes. Independent ASR checked all eight narration clips, and representative frames across chapters/transitions were inspected. Source checks: 49 Python tests, 17 arena tests and the viewer build passed. A two-chapter media regression export verifies that normalization does not accumulate audio offsets. The MP4 and run evidence remain outside Git.
 
 ## Evidence rules
 

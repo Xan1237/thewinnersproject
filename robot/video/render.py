@@ -223,11 +223,19 @@ def render_segment(segment, clips, audio_entry, args, fonts):
     print(f"Editing {sid}: {len(selected)} capture cuts, {hold:.2f}s final-frame hold", flush=True)
     run(command)
     wav = directory / "audio.wav"
+    normalized = directory / "normalized.wav"
+    # loudnorm buffers audio. Materialize it before padding so its frame timestamps
+    # cannot shorten the chapter and accumulate an offset across the final concat.
     run(["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-i", audio_path, "-af",
-         f"loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,adelay={round(args.lead * 1000)}:all=1,apad,atrim=duration={slot:.6f},asetpts=PTS-STARTPTS",
+         "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000",
+         "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", normalized])
+    run(["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-i", normalized, "-af",
+         f"adelay={round(args.lead * 1000)}:all=1,apad,atrim=duration={slot:.6f},asetpts=PTS-STARTPTS",
          "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", wav])
     if abs(media_duration(video) - slot) > 1 / args.fps + 0.005:
         raise RuntimeError(f"{sid}: edited video duration does not match its slot")
+    if abs(media_duration(wav) - slot) > 1 / 48000 + 0.001:
+        raise RuntimeError(f"{sid}: edited audio duration does not match its slot")
     return video, wav, {"id": sid, "clips": selected, "final_frame_hold_seconds": hold, "speech_duration": speech,
                         "caption_timing": "provided local offsets" if explicit else "estimated by script word count", "captions": captions}
 
@@ -289,6 +297,8 @@ def main():
         raise RuntimeError("Output codecs, dimensions or frame rate failed validation")
     if abs(float(info["format"]["duration"]) - args.duration) > 0.06:
         raise RuntimeError("Output duration failed validation")
+    if abs(float(audio_stream["duration"]) - args.duration) > 0.06:
+        raise RuntimeError("Output audio duration failed validation")
     decode = ["ffmpeg", "-v", "error", "-xerror", "-i", str(args.out), "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"]
     run(decode)
     report = {"output": str(args.out), "duration": float(info["format"]["duration"]), "width": args.width, "height": args.height,
