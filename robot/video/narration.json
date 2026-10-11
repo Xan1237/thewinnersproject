@@ -1,0 +1,418 @@
+{
+  "duration": 240,
+  "segments": [
+    {
+      "id": "01",
+      "speaker": "vel",
+      "start": 0,
+      "end": 31,
+      "title": "From robot decisions to training data",
+      "visual": "Live overview, named planners and the gold local robot.",
+      "text": "These robots are working through the same tasks with different AI planners. On the right, every move becomes a record: what the robot observed, what it chose, and what happened next. datanode turns successful attempts into training examples for a small local controller. This walkthrough follows that process from the room, through the decision log and training, to the gold robot running the learned policy.",
+      "captions": [
+        {
+          "text": "These robots are working through the same tasks with",
+          "start": 0.3,
+          "end": 2.98
+        },
+        {
+          "text": "different AI planners. On the right, every move becomes",
+          "start": 2.98,
+          "end": 6.58
+        },
+        {
+          "text": "a record. What the robot observed, what it chose,",
+          "start": 6.58,
+          "end": 9.72
+        },
+        {
+          "text": "and what happened next. Datanode turns successful attempts into",
+          "start": 10.12,
+          "end": 13.92
+        },
+        {
+          "text": "training examples for a small local controller. This walkthrough",
+          "start": 13.92,
+          "end": 17.68
+        },
+        {
+          "text": "follows that process from the room, through the decision",
+          "start": 17.68,
+          "end": 20.46
+        },
+        {
+          "text": "log and training, to the gold robot running the",
+          "start": 20.46,
+          "end": 23.34
+        },
+        {
+          "text": "learned policy.",
+          "start": 23.34,
+          "end": 23.96
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "speaker": "tim",
+      "start": 31,
+      "end": 61,
+      "title": "One room, several controllers",
+      "visual": "Follow a frontier robot; room objects and collision responses.",
+      "text": "The room contains a coffee table, a lectern, chairs, and obstacles. Each robot has the same movement controls. Its label identifies the planner guiding it: Astra, Fable, or Opus. The instruction can ask for more than one step, such as collecting a coffee and bringing it to the lectern. We record complete attempts, including blocked moves and failures, so the comparison reflects what actually happened.",
+      "captions": [
+        {
+          "text": "The room contains a coffee table, a lectern, chairs,",
+          "start": 0.3,
+          "end": 3.4
+        },
+        {
+          "text": "and obstacles. Each robot has the same movement controls.",
+          "start": 3.8,
+          "end": 7.34
+        },
+        {
+          "text": "Its label identifies the planner guiding it, Astra, Fable,",
+          "start": 7.9,
+          "end": 11.8
+        },
+        {
+          "text": "or Opus. The instruction can ask for more than",
+          "start": 12.12,
+          "end": 14.86
+        },
+        {
+          "text": "one step, such as collecting a coffee and bringing",
+          "start": 14.86,
+          "end": 17.54
+        },
+        {
+          "text": "it to the lectern. We record complete attempts, including",
+          "start": 17.54,
+          "end": 21.04
+        },
+        {
+          "text": "blocked moves and failures, so the comparison reflects what",
+          "start": 21.04,
+          "end": 24.28
+        },
+        {
+          "text": "actually happened.",
+          "start": 24.28,
+          "end": 25.16
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "speaker": "vel",
+      "start": 61,
+      "end": 92,
+      "title": "The planner and Jev",
+      "visual": "A visible planner message, Jev choice and probabilities, motor data.",
+      "text": "The planner writes short guidance from a description of the room and the recent actions. Jev then chooses a move, such as turning left, walking forward, or reaching for the cup. The panel shows both parts: the planner's instruction and Jev's choice with its confidence. The simulator applies the move and returns the next state. That feedback lets the planner revise its guidance when the robot gets stuck.",
+      "captions": [
+        {
+          "text": "The planner writes short guidance from a description of",
+          "start": 0.3,
+          "end": 2.84
+        },
+        {
+          "text": "the room and the recent actions. Jev then chooses",
+          "start": 2.84,
+          "end": 5.88
+        },
+        {
+          "text": "a move, such as turning left, walking forward, or",
+          "start": 5.88,
+          "end": 9.44
+        },
+        {
+          "text": "reaching for the cup. The panel shows both parts,",
+          "start": 9.44,
+          "end": 12.24
+        },
+        {
+          "text": "the planner's instruction and Jev's choice with its confidence.",
+          "start": 12.74,
+          "end": 15.72
+        },
+        {
+          "text": "The simulator applies the move and returns the next",
+          "start": 16.36,
+          "end": 18.98
+        },
+        {
+          "text": "state. That feedback lets the planner revise its guidance",
+          "start": 18.98,
+          "end": 22.24
+        },
+        {
+          "text": "when the robot gets stuck.",
+          "start": 22.24,
+          "end": 23.6
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "speaker": "tim",
+      "start": 92,
+      "end": 122,
+      "title": "Watch a complete attempt",
+      "visual": "Real coffee interaction and arrival; a command or task change.",
+      "text": "Here the robot is working through the coffee task. It has to approach the table, get within reach, collect the cup, and move toward the lectern. The task changes stage when the simulator registers the pickup. The cup follows the robot's hand while it travels. These are simulated interactions using an articulated robot and motion clips. The decision log remains visible, so we can connect the movement to the action that caused it.",
+      "captions": [
+        {
+          "text": "Here, the robot is working through the coffee task.",
+          "start": 0.3,
+          "end": 2.96
+        },
+        {
+          "text": "It has to approach the table, get within reach,",
+          "start": 3.42,
+          "end": 5.94
+        },
+        {
+          "text": "collect the cup, and move toward the lectern. The",
+          "start": 6.28,
+          "end": 9.16
+        },
+        {
+          "text": "task changes stage when the simulator registers the pickup.",
+          "start": 9.16,
+          "end": 12.22
+        },
+        {
+          "text": "The cup follows the robot's hand while it travels.",
+          "start": 12.76,
+          "end": 15.18
+        },
+        {
+          "text": "These are simulated interactions using an articulated robot and",
+          "start": 15.92,
+          "end": 19.32
+        },
+        {
+          "text": "motion clips. The decision log remains visible, so we",
+          "start": 19.32,
+          "end": 22.54
+        },
+        {
+          "text": "can connect the movement to the action that caused",
+          "start": 22.54,
+          "end": 24.74
+        },
+        {
+          "text": "it.",
+          "start": 24.74,
+          "end": 24.96
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "speaker": "vel",
+      "start": 122,
+      "end": 153,
+      "title": "Inspect the recorded data",
+      "visual": "Open a genuine episode and its steps in Labeled data.",
+      "text": "Opening an episode reveals the data behind the animation. Each step includes the robot's state, the selected action, a short label, the planner's guidance, and Jev's decision details. The record also includes whether the attempt succeeded, along with decision latency and model cost. Successful episodes are selected for training. Failed attempts stay in the records, where they help us inspect mistakes instead of disappearing from the comparison.",
+      "captions": [
+        {
+          "text": "Opening an episode reveals the data behind the animation.",
+          "start": 0.3,
+          "end": 3.32
+        },
+        {
+          "text": "Each step includes the robot's state, the selected action,",
+          "start": 4.1,
+          "end": 7.22
+        },
+        {
+          "text": "a short label, the planner's guidance, and Jev's decision",
+          "start": 7.6,
+          "end": 10.88
+        },
+        {
+          "text": "details. The record also includes whether the attempt succeeded,",
+          "start": 10.88,
+          "end": 14.7
+        },
+        {
+          "text": "along with decision latency and model cost. Successful episodes",
+          "start": 15.08,
+          "end": 19.1
+        },
+        {
+          "text": "are selected for training. Failed attempts stay in the",
+          "start": 19.1,
+          "end": 22.28
+        },
+        {
+          "text": "records, where they help us inspect mistakes instead of",
+          "start": 22.28,
+          "end": 25.2
+        },
+        {
+          "text": "disappearing from the comparison.",
+          "start": 25.2,
+          "end": 26.52
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "speaker": "tim",
+      "start": 153,
+      "end": 184,
+      "title": "Train on successful attempts",
+      "visual": "Actual training tab, source counts, loss curve and network.",
+      "text": "The training loop combines successful model-controlled attempts with a separately counted set of scripted demonstrations. The panel shows how many came from each source. A small neural network learns to map the numeric robot and goal state to an action. We split the recorded episodes into training and validation sets, save a checkpoint, and load its weights into the viewer. The cloud planners keep collecting attempts while later training rounds use the expanded dataset.",
+      "captions": [
+        {
+          "text": "The training loop combines successful, model -controlled attempts with",
+          "start": 0.3,
+          "end": 3.6
+        },
+        {
+          "text": "a separately -counted set of scripted demonstrations. The panel",
+          "start": 3.6,
+          "end": 7.34
+        },
+        {
+          "text": "shows how many came from each source. A small",
+          "start": 7.34,
+          "end": 10.38
+        },
+        {
+          "text": "neural network learns to map the numeric robot and",
+          "start": 10.38,
+          "end": 13.16
+        },
+        {
+          "text": "goal state to an action. We split the recorded",
+          "start": 13.16,
+          "end": 15.96
+        },
+        {
+          "text": "episodes into training and validation sets, save a checkpoint,",
+          "start": 15.96,
+          "end": 19.48
+        },
+        {
+          "text": "and load its weights into the viewer. The cloud",
+          "start": 19.88,
+          "end": 22.34
+        },
+        {
+          "text": "planners keep collecting attempts, while later training rounds use",
+          "start": 22.34,
+          "end": 25.54
+        },
+        {
+          "text": "the expanded dataset.",
+          "start": 25.54,
+          "end": 26.56
+        }
+      ]
+    },
+    {
+      "id": "07",
+      "speaker": "vel",
+      "start": 184,
+      "end": 216,
+      "title": "Run the local policy",
+      "visual": "Follow learned-bc, show zero tokens/cost and mixed results.",
+      "text": "The gold robot runs the learned policy. Its decisions are computed locally, without sending a request to a cloud model for each move. It can complete some attempts, and it still fails others. Those results are recorded through the same interface as the teachers. This policy receives numeric state and a goal; it does not understand speech or camera images. Watching its failures helps us decide what demonstrations and tests to add next.",
+      "captions": [
+        {
+          "text": "The Gold Robot runs the learned policy. Its decisions",
+          "start": 0.3,
+          "end": 3.58
+        },
+        {
+          "text": "are computed locally, without sending a request to a",
+          "start": 3.58,
+          "end": 6.64
+        },
+        {
+          "text": "cloud model for each move. It can complete some",
+          "start": 6.64,
+          "end": 9.48
+        },
+        {
+          "text": "attempts, and it still fails others. Those results are",
+          "start": 9.48,
+          "end": 12.9
+        },
+        {
+          "text": "recorded through the same interface as the teachers. This",
+          "start": 12.9,
+          "end": 16.04
+        },
+        {
+          "text": "policy receives numeric state and a goal. It does",
+          "start": 16.04,
+          "end": 19.1
+        },
+        {
+          "text": "not understand speech or camera images. Watching its failures",
+          "start": 19.1,
+          "end": 22.86
+        },
+        {
+          "text": "helps us decide what demonstrations and tests to add",
+          "start": 22.86,
+          "end": 25.88
+        },
+        {
+          "text": "next.",
+          "start": 25.88,
+          "end": 26.24
+        }
+      ]
+    },
+    {
+      "id": "08",
+      "speaker": "tim",
+      "start": 216,
+      "end": 240,
+      "title": "What the prototype proves",
+      "visual": "Overview or stage, actual results and repository entrypoint.",
+      "text": "The output of datanode is a set of inspectable robot demonstrations and a local control policy. This prototype uses kinematic simulation. Testing grasp forces and balance requires a physics model. Next, we would measure performance on new starting positions and layouts. The code and run records show how this experiment was produced.",
+      "captions": [
+        {
+          "text": "The output of datanode is a set of",
+          "start": 0.3,
+          "end": 2.34
+        },
+        {
+          "text": "inspectable robot demonstrations and a local control policy. This",
+          "start": 2.34,
+          "end": 6.74
+        },
+        {
+          "text": "prototype uses kinematic simulation. Testing grasp forces and balance",
+          "start": 6.74,
+          "end": 11.4
+        },
+        {
+          "text": "requires a physics model. Next, we would measure performance",
+          "start": 11.4,
+          "end": 14.98
+        },
+        {
+          "text": "on new starting positions and layouts. The code and",
+          "start": 14.98,
+          "end": 18.22
+        },
+        {
+          "text": "run records show how this experiment was produced.",
+          "start": 18.22,
+          "end": 20.72
+        }
+      ]
+    }
+  ]
+}

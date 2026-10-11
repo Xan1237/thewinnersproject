@@ -1,0 +1,49 @@
+env:
+  type: g1-sim
+  base_url: http://127.0.0.1:8848
+  max_steps: 60
+run:
+  max_steps: 60
+train:
+  extra_base_url: http://127.0.0.1:8849
+  extra_policies:
+    - {type: scripted-goto, name: scripted-precise, noise: 0.03}
+    - {type: scripted-goto, name: scripted-sloppy, noise: 0.08}
+  epochs: 120
+  hidden: [128, 128]
+  val_fraction: 0.2
+  epoch_delay_s: 0.06
+show:
+  routines: [coffee_lectern, lectern_wave]
+  bootstrap_episodes: 8
+  first_round_wins: 2
+  retrain_every_wins: 6
+  min_train_episodes: 8
+  pause_s: 3
+  hold_after_order_s: 8
+  local_pace_s: 0.35
+policies:
+  - type: jev
+    name: fable-5.1
+    orchestrator: anthropic/claude-fable-5.1
+    orchestrator_extra_body: {reasoning: {effort: low}}
+    timeout: 15
+    max_retries: 0
+    price_in: 10.0
+    price_out: 50.0
+  - type: jev
+    name: gpt-6-astra
+    orchestrator: openai/gpt-6-astra
+    orchestrator_extra_body: {reasoning: {effort: low}}
+    timeout: 15
+    max_retries: 0
+    price_in: 10.0
+    price_out: 50.0
+  - type: jev
+    name: opus-5.5
+    orchestrator: anthropic/claude-opus-5.5
+    orchestrator_extra_body: {reasoning: {effort: low}}
+    timeout: 15
+    max_retries: 0
+    price_in: 4.0
+    price_out: 20.0
