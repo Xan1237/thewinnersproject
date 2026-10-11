@@ -26,10 +26,10 @@ const number = (value, min, max) => typeof value === 'number' && Number.isFinite
 
 export function validateCommand(input) {
   if (!object(input)) throw new Error('Command must be a JSON object');
-  if (!['move', 'turn', 'coffee', 'joints', 'stop'].includes(input.type)) throw new Error('Unknown command type');
+  if (!['move', 'turn', 'coffee', 'sit', 'stand', 'joints', 'stop'].includes(input.type)) throw new Error('Unknown command type');
   const fields = {
     move: ['type', 'forward', 'right', 'duration', 'sprint'],
-    turn: ['type', 'radians', 'duration'], coffee: ['type'], joints: ['type', 'angles', 'duration'], stop: ['type'],
+    turn: ['type', 'radians', 'duration'], coffee: ['type'], sit: ['type'], stand: ['type'], joints: ['type', 'angles', 'duration'], stop: ['type'],
   }[input.type];
   if (!fields) throw new Error('Unknown command type');
   if (Object.keys(input).some(key => !fields.includes(key))) throw new Error('Unknown command field');
@@ -142,6 +142,8 @@ export function createRobotApi({ port = 8817, token = process.env.ROBOT_API_TOKE
       move: { type: 'move', forward: 'number [-1,1]', right: 'number [-1,1]', duration: 'number [0.1,10]', sprint: 'optional boolean, default false' },
       turn: { type: 'turn', radians: 'number [-pi,pi]', duration: 'number [0.1,5]' },
       coffee: { type: 'coffee' },
+      sit: { type: 'sit', description: 'Sit in armchair_blue; root must be within 0.8m of the standing contact pose. Completes after 3.4s and remains seated.' },
+      stand: { type: 'stand', description: 'Reverse the sitting clip and restore locomotion. Requires seated state.' },
       joints: { type: 'joints', angles: 'object: G1 joint name -> finite radians', duration: 'number [0.1,10]', jointNames: JOINT_NAMES },
       stop: { type: 'stop', description: 'Interrupt active command and clear queue, then stop simulator' },
     },

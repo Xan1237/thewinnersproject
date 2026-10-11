@@ -1,3 +1,4 @@
+import { sampleSit } from '../../robot/src/sitting-motion.js';
 import * as THREE from 'three';
 import { G1 } from './g1.js';
 import { HOLD_POSE, gaitJoints } from '../server/core.js';
@@ -20,12 +21,14 @@ export class Actor {
   constructor(template, scene, start, { color, model, cupFactory }) {
     this.id = start.session;
     this.model = model;
+    this.task = start.task;
     this.color = color;
+    this.seatPlacement = start.seat_placement ?? null;
     this.g1 = new G1(template, { color });
     this.scene = scene;
     scene.add(this.g1.group);
     const [x, z] = start.position;
-    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false }];
+    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false, seatTime: -1 }];
     this.clock = 0;
     this.index = 0;
     this.cur = { ...this.keys[0] };
@@ -45,9 +48,9 @@ export class Actor {
 
   enqueue(ev) {
     const last = this.keys[this.keys.length - 1];
-    ev.path.forEach(([x, z, h, phase, blend], i) => {
+    ev.path.forEach(([x, z, h, phase, blend, seatTime = -1], i) => {
       const lastSample = i === ev.path.length - 1;
-      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding });
+      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, seatTime, y: ev.y, holding: lastSample ? ev.holding : last.holding });
     });
     this.tagLabels.push({ t: last.t, text: ev.label || '' });
   }
@@ -61,9 +64,10 @@ export class Actor {
     const g = this.g1;
     g.group.position.set(k.x, THREE.MathUtils.damp(g.group.position.y, k.y, 8, Math.max(dt, 1 / 60)), k.z);
     g.group.rotation.y = k.h;
-    const joints = gaitJoints(k.phase, k.blend);
+    const sit = this.seatPlacement && k.seatTime >= 0 ? sampleSit(k.seatTime, this.seatPlacement) : null;
+    const joints = sit ? sit.joints : gaitJoints(k.phase, k.blend);
     if (k.holding) Object.assign(joints, HOLD_POSE);
-    g.setJoints(joints);
+    g.setJoints(joints, sit?.pelvisHeight);
     if (this.cup) {
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
@@ -83,6 +87,7 @@ export class Actor {
       x: THREE.MathUtils.lerp(a.x, b.x, f), z: THREE.MathUtils.lerp(a.z, b.z, f), h: lerpAngle(a.h, b.h, f),
       phase: THREE.MathUtils.lerp(a.phase, b.phase, f), blend: THREE.MathUtils.lerp(a.blend, b.blend, f), y: b.y,
       holding: f >= 1 ? b.holding : a.holding,
+      seatTime: b.seatTime >= 0 ? (a.seatTime >= 0 ? THREE.MathUtils.lerp(a.seatTime, b.seatTime, f) : (f > 0 ? b.seatTime * f : -1)) : -1,
     };
     if (idle) { k.blend = THREE.MathUtils.damp(this.cur.blend, 0, 6, dt); k.phase = this.cur.phase; }
     this.cur = k;

@@ -11,7 +11,7 @@ const insideTable = (x, z) => x > OBSTACLE.minX && x < OBSTACLE.maxX && z > OBST
  * Walking is a visual gait, not a Kimodo-generated motion or hardware control.
  */
 export class RobotController {
-  constructor({ worldRoot, robotRoot, camera, controls, joints, onInteract, onStatus, onManualInput }) {
+  constructor({ worldRoot, robotRoot, camera, controls, joints, onInteract, onStatus, onManualInput, obstacles=[] }) {
     this.worldRoot = worldRoot;
     this.robotRoot = robotRoot;
     this.camera = camera;
@@ -21,6 +21,7 @@ export class RobotController {
     this.onStatus = onStatus || (() => {});
     this.onManualInput = onManualInput || (() => {});
     this.remoteInput = null;
+    this.obstacles = obstacles;
     this.byName = new Map(joints.map(joint => [joint.name, joint]));
     this.pelvis = robotRoot.getObjectByName('pelvis');
     this.pelvisRest = this.pelvis?.position.clone();
@@ -73,6 +74,19 @@ export class RobotController {
     this.remoteInput = null;
     this.velocity.set(0, 0, 0);
     this.keys.clear();
+  }
+
+  blocked(x,z) {
+    if(insideTable(x,z))return true;
+    const before=this.worldRoot.position;
+    for(const o of this.obstacles){
+      const penetration=(px,pz)=>Math.min(px-o.minX,o.maxX-px,pz-o.minZ,o.maxZ-pz);
+      const next=penetration(x,z),previous=penetration(before.x,before.z);
+      // A stood-up robot starts at the calibrated cushion edge. Let it
+      // leave the coarse collision box, while preventing further entry.
+      if(next>0&&(previous<=0||next>=previous-1e-8))return true;
+    }
+    return false;
   }
 
   setEnabled(value) {
@@ -132,9 +146,9 @@ export class RobotController {
     const beforeX = position.x, beforeZ = position.z;
     // Separate axes let the robot slide along the table instead of sticking.
     const proposedX = THREE.MathUtils.clamp(position.x + this.velocity.x * dt, -4, 4);
-    if (!insideTable(proposedX, position.z)) position.x = proposedX;
+    if (!this.blocked(proposedX, position.z)) position.x = proposedX;
     const proposedZ = THREE.MathUtils.clamp(position.z + this.velocity.z * dt, -4, 4);
-    if (!insideTable(position.x, proposedZ)) position.z = proposedZ;
+    if (!this.blocked(position.x, proposedZ)) position.z = proposedZ;
     this.delta.set(position.x - beforeX, 0, position.z - beforeZ);
     const actualSpeed = dt > 0 ? this.delta.length() / dt : 0;
     this._moving = actualSpeed > .03;

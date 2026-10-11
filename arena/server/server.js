@@ -74,9 +74,9 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         }
         const body = await readJson(req);
         const id = `s${nextId++}`;
-        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120 });
+        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), preview: body.preview === true, maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120 });
         sessions.set(id, s);
-        broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
+        broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps, seat_placement: s.spec.placement ?? null });
         return send(res, 200, { id, task_description: s.spec.description, action_spec: ACTION_SPEC, observation_spec: OBSERVATION_SPEC, observation: s.observation() });
       }
       const m = /^\/sim\/sessions\/([^/]+)(?:\/(step))?$/.exec(path);
@@ -100,7 +100,7 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
             type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label,
             position: r.info.position, heading: r.info.heading, y: r.info.y, path: r.path, joints: r.info.joints,
             holding: r.info.holding, collided: r.info.collided, distance: r.info.distance, reward: r.reward, done: r.done,
-            success: r.info.success, reason: r.info.reason,
+            success: r.info.success, reason: r.info.reason, seating: r.info.seating, seated: r.info.seated, seat_time: r.info.seat_time, pelvis_height: r.info.pelvis_height,
           });
           if (r.done) broadcast({ type: 'session_finished', session: s.id, model, task: s.task, success: r.info.success, steps: s.t, reason: r.info.reason });
           const { path, ...resp } = r;

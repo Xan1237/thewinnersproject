@@ -12,13 +12,15 @@ All numbers are SI units, radians, world Y up. At heading 0 the robot faces worl
 The room: `{"bounds": {"minX","maxX","minZ","maxZ"}, "objects": [{"id","name","kind","x","z","sx","sz","height","solid": bool}]}`. `x`,`z` is the centre, `sx`,`sz` the footprint size. LLM context and collision data come from here.
 
 ### `POST /sim/sessions`
-Body: `{"task": "goto:armchair_blue" | "fetch_coffee", "seed": 0, "model": "claude-sonnet", "max_steps": 120}`.
+Body: `{"task": "goto:armchair_blue" | "fetch_coffee" | "sit:armchair_blue", "seed": 0, "model": "claude-sonnet", "max_steps": 120}`.
 Response: `{"id", "task_description", "action_spec": {"names","low","high","units"}, "observation_spec": {"names","description"}, "observation": {"t","state","text"}}`.
 
 ### `POST /sim/sessions/{id}/step`
 Body: `{"action": [forward, right, turn, interact], "label": "walk toward the armchair", "model": "claude-sonnet"}`.
 Action semantics (all clipped to the spec): `forward`/`right` in [-1,1] are speed fractions of 1.5 m/s relative to the heading; `turn` in [-1,1] is a fraction of 1.5 rad/s (positive = turn left, counter-clockwise seen from above; the heading increases); `interact` in [0,1], `> 0.5` means "grab / interact" (only valid next to the station). One step advances the sim by `dt = 0.5` s (internally sub-stepped at 20 ms).
 Response: `{"observation": {"t","state","text"}, "reward": float, "done": bool, "info": {"success": bool, "reason": "...", "position": [x,z], "heading": float, "joints": {name: angle}, "collided": bool}}`.
+
+`info` also includes `seating`, `seated`, `seat_time` (seconds, -1 before sitting), and `pelvis_height` (metres above the ground, null for the walking pose). `observation` exposes the seating flags and time alongside its unchanged eight-number vector.
 
 `info.joints` holds the gait/arm joint angles at the end of the step. This is the "nested motor data" shown beside the label.
 
@@ -37,6 +39,22 @@ One JSON event per step for every session: `{"session","model","task","t","actio
 
 ## Tasks
 - `goto:<object_id>`: success when the robot is within 1.2 m of the object's centre.
+- `sit:armchair_blue`: navigate to the free front approach shown by the goal vector, then send `interact > 0.5` within 0.65 m. The robot aligns, lowers onto the seat, and becomes successful only after the complete sitting animation. During this motion, movement actions are ignored; send `[0,0,0,0]` to advance time. The target uses the actual room armchair at (1.5, -3.7), yaw 155 degrees, on the 0.35 m stage; front is chair local -Z.
 - `fetch_coffee`: success when `interact > 0.5` is sent within 0.9 m of the coffee station on the table, so that `holding == 1`.
 
 Reward: `+1` on success, `-0.01` per step, plus a small shaping term of `0.1 * (previous_goal_dist - goal_dist)`.
+
+
+## Sitting preview and playback
+
+The Arena **Sit in armchair** button starts `sit:armchair_blue` with `preview: true`, placing a new demo robot at the free front approach, and advances it through the full animation. Normal sessions keep deterministic random starts. `preview` has no effect on other tasks. Example:
+
+```sh
+curl -s http://127.0.0.1:8818/sim/sessions -H 'Content-Type: application/json' \
+  -d '{"task":"sit:armchair_blue","preview":true,"model":"seating-demo"}'
+# Use the returned id, interact once, then repeat zero-action steps until done:
+curl -s http://127.0.0.1:8818/sim/sessions/s1/step -H 'Content-Type: application/json' \
+  -d '{"action":[0,0,0,1]}'
+```
+
+SSE `session_started` includes `seat_placement` for a sitting task. Each step includes `path` samples at 0.1 s intervals: `[x,z,heading,gait_phase,gait_blend,seat_time]`. The last value is -1 outside sitting. The viewer samples the same shared joint animation between these timestamps and applies its pelvis height directly rather than regrounding the seated hips from the feet. Five-field paths from older clients still render as walking. All sitting runs are local and need no Modal access.

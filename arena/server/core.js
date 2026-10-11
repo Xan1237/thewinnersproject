@@ -1,3 +1,5 @@
+import { ARMCHAIR_ROOM_PLACEMENT, SIT_DURATION, sampleSit } from '../../robot/src/sitting-motion.js';
+
 // Headless, deterministic simulation core for the G1 room arena. No browser or three.js needed.
 // Contract: robot/docs/SIM_API.md. World: metres, Y up, heading 0 faces +Z, right = -X.
 
@@ -8,12 +10,14 @@ export const WALK_SPEED = 1.5;
 export const TURN_RATE = 1.5;     // rad/s at turn = 1
 export const GOTO_RADIUS = 1.2;
 export const COFFEE_RADIUS = 0.9;
+export const SEAT_RADIUS = 0.65;
+export const SEAT_ALIGNMENT = 0.4;
 
 export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
   low: [-1, -1, -1, 0],
   high: [1, 1, 1, 1],
-  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs the coffee cup when within 0.9 m',
+  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs coffee within 0.9 m or starts sitting within 0.65 m of the chair front approach',
 };
 export const OBSERVATION_SPEC = {
   names: ['x', 'z', 'heading', 'goal_forward', 'goal_right', 'goal_dist', 'holding', 'steps_left_frac'],
@@ -121,6 +125,15 @@ export function resolveTask(world, task) {
     if (!cup) throw new Error('manifest has no coffee_cup');
     return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the table on the right side of the room, pick up the coffee cup (set interact > 0.5 within 0.9 m of the cup) and hold it.' };
   }
+  if (task === 'sit:armchair_blue') {
+    const chair = world.byId.get('armchair_blue');
+    if (!chair) throw new Error('manifest has no armchair_blue');
+    const placement = { ...ARMCHAIR_ROOM_PLACEMENT, chairX: chair.x, chairZ: chair.z, groundY: world.groundHeight(chair.x, chair.z) };
+    const approach = Math.max(chair.sx, chair.sz) / 2 + ROBOT_RADIUS + 0.2;
+    const target = { ...chair, name: `${chair.name} front approach`, x: chair.x - Math.sin(placement.chairYaw) * approach, z: chair.z - Math.cos(placement.chairYaw) * approach, solid: false };
+    if (world.blocked(target.x, target.z)) throw new Error('chair front approach is obstructed');
+    return { kind: 'sit', target, chair, placement, radius: SEAT_RADIUS, description: `Walk to the front approach of the ${chair.name}, at x=${target.x.toFixed(2)}, z=${target.z.toFixed(2)}. Stop within ${SEAT_RADIUS} m on the free floor and set interact > 0.5 to sit. Then send [0,0,0,0] until seated; the animation takes ${(SEAT_ALIGNMENT + SIT_DURATION).toFixed(1)} simulated seconds. Reaching the chair alone does not finish this task.` };
+  }
   const m = /^goto:(.+)$/.exec(task);
   if (m) {
     const target = world.byId.get(m[1]);
@@ -131,7 +144,7 @@ export function resolveTask(world, task) {
 }
 
 export class Session {
-  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120 } = {}) {
+  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120, preview = false } = {}) {
     this.world = world;
     this.id = id;
     this.seed = seed;
@@ -140,7 +153,7 @@ export class Session {
     this.task = task;
     this.spec = resolveTask(world, task);
     const rand = mulberry32(seed * 7919 + 13);
-    const start = world.startPose(rand, this.spec.target);
+    const start = preview && this.spec.kind === 'sit' ? { x: this.spec.target.x, z: this.spec.target.z, heading: sampleSit(0, this.spec.placement).heading } : world.startPose(rand, this.spec.target);
     this.x = start.x;
     this.z = start.z;
     this.heading = start.heading;
@@ -149,6 +162,11 @@ export class Session {
     this.phase = 0;
     this.blend = 0;
     this.holding = false;
+    this.seating = false;
+    this.seated = false;
+    this.seatTime = -1;
+    this.seatElapsed = 0;
+    this.seatFrom = null;
     this.t = 0;
     this.done = false;
     this.success = false;
@@ -168,7 +186,7 @@ export class Session {
   }
 
   pose() {
-    const joints = gaitJoints(this.phase, this.blend);
+    const joints = this.seatTime >= 0 ? sampleSit(this.seatTime, this.spec.placement).joints : gaitJoints(this.phase, this.blend);
     if (this.holding) Object.assign(joints, HOLD_POSE);
     return Object.fromEntries(Object.entries(joints).map(([k, v]) => [k, round(v)]));
   }
@@ -176,7 +194,7 @@ export class Session {
   observation() {
     const g = this.goalLocal();
     const state = [this.x, this.z, this.heading, g.forward, g.right, this.goalDist(), this.holding ? 1 : 0, 1 - this.t / this.maxSteps].map(v => round(v));
-    return { t: this.t, state, text: this.describe(g) };
+    return { t: this.t, state, text: this.describe(g), seating: this.seating, seated: this.seated, seat_time: round(this.seatTime) };
   }
 
   describe(g = this.goalLocal()) {
@@ -185,6 +203,8 @@ export class Session {
     lines.push(`Target "${this.spec.target.name}": ${g.forward.toFixed(2)} m ahead, ${Math.abs(g.right).toFixed(2)} m to your ${g.right >= 0 ? 'right' : 'left'}, distance ${this.goalDist().toFixed(2)} m.`);
     if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
     if (this.holding) lines.push('You are holding the coffee cup.');
+    if (this.seated) lines.push('You are seated in the armchair.');
+    else if (this.seating) lines.push(`Sitting animation in progress (${this.seatTime.toFixed(2)} / ${SIT_DURATION.toFixed(2)} s). Send [0,0,0,0] to wait; movement is paused until seated.`);
     const near = this.world.objects
       .filter(o => o.solid && o !== this.spec.target)
       .map(o => ({ o, d: Math.hypot(o.x - this.x, o.z - this.z) - Math.max(o.sx, o.sz) / 2 }))
@@ -206,8 +226,34 @@ export class Session {
     const path = [];
     this.collided = false;
     let moved = 0;
+    let reason = '';
+    if (interact > 0.5 && this.spec.kind === 'sit' && !this.seating && !this.seated) {
+      if (this.goalDist() <= SEAT_RADIUS && !this.world.blocked(this.x, this.z)) {
+        this.seating = true;
+        this.seatTime = 0;
+        this.seatFrom = { x: this.x, z: this.z, heading: this.heading };
+        this.vx = 0; this.vz = 0;
+        reason = 'started sitting in the armchair';
+      } else reason = `approach the free front of the armchair (${this.goalDist().toFixed(2)} m, need <= ${SEAT_RADIUS} m)`;
+    }
     const n = Math.round(DT / SUBSTEP);
     for (let i = 0; i < n; i++) {
+      if (this.seating || this.seated) {
+        this.seatElapsed += SUBSTEP;
+        this.seatTime = clamp(this.seatElapsed - SEAT_ALIGNMENT, 0, SIT_DURATION);
+        const pose = sampleSit(this.seatTime, this.spec.placement);
+        const u = clamp(this.seatElapsed / SEAT_ALIGNMENT, 0, 1);
+        const ease = u * u * (3 - 2 * u);
+        this.x = this.seatFrom.x + (pose.position[0] - this.seatFrom.x) * ease;
+        this.z = this.seatFrom.z + (pose.position[2] - this.seatFrom.z) * ease;
+        const delta = ((pose.heading - this.seatFrom.heading + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+        this.heading = this.seatFrom.heading + delta * ease;
+        this.blend = 0;
+        this.seated = pose.seated;
+        this.seating = !this.seated;
+        if ((i + 1) % 5 === 0) path.push([round(this.x), round(this.z), round(this.heading), round(this.phase, 3), 0, round(this.seatTime, 3)]);
+        continue;
+      }
       this.heading += turn * TURN_RATE * SUBSTEP;
       if (this.heading > Math.PI) this.heading -= 2 * Math.PI;
       if (this.heading < -Math.PI) this.heading += 2 * Math.PI;
@@ -229,11 +275,10 @@ export class Session {
       const target = Math.min(speed / WALK_SPEED, 1);
       this.blend += (target - this.blend) * (1 - Math.exp(-SUBSTEP * 10));
       this.phase += SUBSTEP * 10.5 * target;
-      if ((i + 1) % 5 === 0) path.push([round(this.x), round(this.z), round(this.heading), round(this.phase, 3), round(this.blend, 3)]);
+      if ((i + 1) % 5 === 0) path.push([round(this.x), round(this.z), round(this.heading), round(this.phase, 3), round(this.blend, 3), -1]);
     }
     this.t += 1;
 
-    let reason = '';
     if (interact > 0.5 && this.spec.kind === 'fetch_coffee' && !this.holding) {
       if (this.goalDist() <= COFFEE_RADIUS) { this.holding = true; reason = 'picked up the coffee cup'; }
       else reason = `too far from the cup (${this.goalDist().toFixed(2)} m, need <= ${COFFEE_RADIUS} m)`;
@@ -243,6 +288,7 @@ export class Session {
     this.lastDist = dist;
     if (this.spec.kind === 'goto' && dist <= GOTO_RADIUS) { this.success = true; reason = `reached the ${this.spec.target.name}`; }
     if (this.spec.kind === 'fetch_coffee' && this.holding) this.success = true;
+    if (this.spec.kind === 'sit' && this.seated) { this.success = true; reason = `seated in the ${this.spec.chair.name}`; }
     if (this.success) reward += 1;
     this.done = this.success || this.t >= this.maxSteps;
     if (this.done && !this.success) reason = reason || 'ran out of steps';
@@ -254,7 +300,8 @@ export class Session {
       info: {
         success: this.success, reason, position: [round(this.x), round(this.z)], heading: round(this.heading),
         y: round(this.world.groundHeight(this.x, this.z)), joints: this.pose(), collided: this.collided, holding: this.holding,
-        distance: round(dist), moved: round(moved),
+        distance: round(dist), moved: round(moved), seating: this.seating, seated: this.seated, seat_time: round(this.seatTime),
+        pelvis_height: this.seatTime >= 0 ? round(sampleSit(this.seatTime, this.spec.placement).pelvisHeight) : null,
       },
       path,
     };

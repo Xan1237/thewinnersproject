@@ -46,7 +46,7 @@ export class G1 {
     this.group.add(this.ring);
   }
 
-  setJoints(angles) {
+  setJoints(angles, pelvisHeight = null) {
     for (const [name, v] of this.joints) {
       const a = angles[name] ?? 0;
       const c = Math.min(Math.max(a, v.min), v.max);
@@ -54,6 +54,11 @@ export class G1 {
     }
     this.pelvis.position.copy(this.pelvisRest);
     this.pelvis.quaternion.copy(this.pelvisRestQ);
+    if (Number.isFinite(pelvisHeight)) {
+      this.pelvis.position.z = pelvisHeight;
+      this.group.updateMatrixWorld(true);
+      return;
+    }
     this.group.updateMatrixWorld(true);
     let lowest = Infinity;
     for (const foot of this.feet) { this.box.setFromObject(foot); lowest = Math.min(lowest, this.box.min.y); }

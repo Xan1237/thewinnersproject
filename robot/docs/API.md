@@ -20,6 +20,8 @@ Command examples:
 {"type":"move","forward":1,"right":0,"duration":0.4,"sprint":false}
 {"type":"turn","radians":1.57,"duration":1}
 {"type":"coffee"}
+{"type":"sit"}
+{"type":"stand"}
 {"type":"joints","angles":{"right_elbow_joint":1.2},"duration":2}
 {"type":"stop"}
 ```
@@ -27,6 +29,8 @@ Command examples:
 World positions use meters and Y up. At heading zero, the robot faces world +Z and its right is -X. Positive heading turns it toward +X. Movement is relative to the robot heading at the start of the command; WASD remains camera-relative. `move` normalizes diagonal direction and uses 1.5 m/s (2.5 with sprint), with acceleration and collision against the table. An action completing means its bounded interval finished; read back `position` to see how far it actually moved if a collision blocked it.
 
 Angles and headings are radians. `state.joints` and `state.limits` expose the available joint names and limits. Invalid joints or angles are rejected; a joint pose is held for the command duration and then returns to the locomotion pose. Arbitrary joint poses have no physics collision solver. `coffee` requires the root to be within 0.75 m of `[0,0,0]`, aligns it to the station, plays the approximately thirteen-second pickup/return, then returns control.
+
+`sit` uses the repository's `armchair_blue.glb`. Move within 0.8 m of `state.chair.standingPosition` first; the command aligns to the contact pose and plays a 3.4-second descent, then holds the seated pose. `state.seated` becomes true only after the full clip. `stand` reverses the clip and restores WASD movement. Locomotion and coffee are rejected while seated. A stop during the descent freezes the current pose (`seatingPaused`, not `seated`); `stand` can recover from that pose. Seating is a deterministic local animation, independent of Modal, with feet held at fixed positions by the G1 geometry.
 
 ## Call it from a terminal or LLM tool handler
 

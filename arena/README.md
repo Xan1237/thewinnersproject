@@ -51,4 +51,8 @@ Do not use `gltf-transform optimize`: it joins meshes and drops the node names t
 ## Notes
 
 - The sim is kinematic (position, heading, procedural gait), not a physics engine. Treat the data as "level zero".
-- The robot app in `../robot` is untouched; the arena reuses its G1 model and gait.
+- The arena reuses the G1 model, gait and shared sitting clip from `../robot`.
+
+## Sitting demo
+
+Click **Sit in armchair** to watch G1 sit in the existing blue armchair on the room stage. This uses the local `sit:armchair_blue` task and the shared `robot/src/sitting-motion.js` animation; it does not use Modal. An LLM can navigate to the provided front approach, interact once, and send zero-action steps until `info.seated` is true. See [SIM_API.md](../robot/docs/SIM_API.md). `goto:armchair_blue` still means walking near the chair and does not sit.
