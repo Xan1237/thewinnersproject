@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { loadG1Template } from './g1.js';
-import { CoffeeLine } from './bar.js';
+import { CoffeeLine, cupMesh } from './bar.js';
 import { Actor } from './actor.js';
 import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
@@ -94,18 +94,7 @@ async function loadRoom() {
   return gltf;
 }
 
-function makeCup() {
-  const porcelain = new THREE.MeshStandardMaterial({ color: '#f1f1eb', roughness: 0.2 });
-  const profile = [[0, 0], [.035, 0], [.042, .007], [.047, .085], [.043, .088], [.038, .011], [0, .011]].map(([x, y]) => new THREE.Vector2(x, y));
-  const cup = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), porcelain);
-  cup.scale.setScalar(1.3);
-  const coffee = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .002, 24), new THREE.MeshStandardMaterial({ color: '#462c1b', roughness: 0.18 }));
-  coffee.position.y = 0.074; cup.add(coffee);
-  cup.castShadow = true;
-  const c = manifest.objects.find(o => o.id === 'coffee_cup');
-  cup.position.set(c.x, 0.745, c.z);
-  return cup;
-}
+function makeCup() { return cupMesh(); }   // an empty cup; the actor fills it when it takes it from the machine
 
 // ---- state
 const panel = new Panel();

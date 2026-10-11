@@ -68,7 +68,7 @@ export class Actor {
     const last = this.keys[this.keys.length - 1];
     ev.path.forEach(([x, z, h, phase, blend], i) => {
       const lastSample = i === ev.path.length - 1;
-      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0, bar: lastSample ? ev.bar ?? undefined : undefined });
+      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0, bar: lastSample ? ev.bar ?? undefined : undefined, full: lastSample ? ev.stage >= 5 && ev.stages === 7 && ev.holding : last.full });
     });
     // A pose (sit, jump, ...) starts when the robot has arrived; timed ones return to standing.
     const end = this.keys[this.keys.length - 1];
@@ -90,7 +90,7 @@ export class Actor {
     this.finished = null;
     this.idleFor = 0;
     this.g1.ring.material.color.set(this.color);
-    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, pose: null, poseT0: 0, bar: ev.slot != null ? { slot: ev.slot, machine: 'empty', left: 0, served: false } : undefined });
+    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, full: false, pose: null, poseT0: 0, bar: ev.slot != null ? { slot: ev.slot, machine: 'empty', left: 0, served: false } : undefined });
     this.recipe = ev.task === 'make_coffee';
     if ((ev.task === 'fetch_coffee' || this.recipe) && !this.cup) { this.cup = this.cupFactory(); this.cupHome = this.cup.position.clone(); this.scene.add(this.cup); }
     this.tagLabels.push({ t: last.t, text: ev.task_description ? `new order` : '' });
@@ -112,6 +112,8 @@ export class Actor {
     g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0, clip?.root ? clip.root(poseT, k) : null);
     if (this.cup) {
       this.cup.visible = k.holding || !this.recipe;
+      const coffee = this.cup.userData.coffee;
+      if (coffee) { coffee.visible = !!k.full; coffee.position.y = 0.082; }
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
     }

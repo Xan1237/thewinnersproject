@@ -23,12 +23,12 @@ export function sign(text, color = '#ffffff') {
   return s;
 }
 
-function cupMesh() {
+export function cupMesh() {
   const profile = [[0, 0], [.035, 0], [.042, .007], [.047, .085], [.043, .088], [.038, .011], [0, .011]].map(([x, y]) => new THREE.Vector2(x, y));
   const cup = new THREE.Mesh(new THREE.LatheGeometry(profile, 24), porcelain);
   cup.scale.setScalar(1.5);
   const coffee = new THREE.Mesh(new THREE.CylinderGeometry(.041, .041, .004, 20), new THREE.MeshStandardMaterial({ color: '#4a2d1a', roughness: 0.2 }));
-  coffee.position.y = 0.074; cup.add(coffee);
+  coffee.position.y = 0.074; coffee.visible = false; cup.add(coffee);   // cups start empty
   cup.userData.coffee = coffee;
   cup.castShadow = true;
   return cup;
@@ -46,7 +46,11 @@ export class CoffeeLine {
     const a = sign('COFFEE MACHINES', '#ffcf6b'); a.position.set(cx, 1.45, BAR.machineZ + 1.0); scene.add(a);
     const b = sign('SERVING COUNTER', '#7fe3ff'); b.position.set(cx, 1.45, BAR.serveZ - 0.9); scene.add(b);
     const c = sign('CUP TABLE', '#f1f1eb'); c.position.set(4.6, 1.45, 1.4); scene.add(c);
-    for (const [x, z] of [[4.62, 1.3], [4.95, 1.45], [5.25, 1.3], [4.62, 1.55], [5.25, 1.55]]) { const cup = cupMesh(); cup.position.set(x, TOP, z); scene.add(cup); }
+    // Empty cups, stacked: three stacks on the cup table.
+    for (const [x, z, n] of [[4.15, 1.4, 7], [4.55, 1.28, 6], [4.55, 1.52, 6], [4.95, 1.4, 7]]) {
+      for (let i = 0; i < n; i++) { const cup = cupMesh(); cup.position.set(x, TOP + i * 0.026, z); cup.rotation.y = i * 0.7; scene.add(cup); }
+    }
+    this.scene = scene;
     for (let i = 0; i < BAR.slots; i++) this.slots.push(this.makeSlot(scene, BAR.x0 + BAR.dx * i));
   }
 
@@ -67,9 +71,8 @@ export class CoffeeLine {
     const sz = BAR.serveZ;
     const sring = new THREE.Mesh(new THREE.RingGeometry(0.095, 0.125, 40), new THREE.MeshBasicMaterial({ color: '#888', side: THREE.DoubleSide }));
     sring.rotation.x = -Math.PI / 2; sring.position.set(x, TOP + 0.004, sz);
-    const served = cupMesh(); served.position.set(x, TOP, sz); served.visible = false;
-    g.add(body, head, spout, lamp, ring, cup, ...steam, sring, served);
-    return { x, lampMat, ring, sring, cup, served, steam, state: 'empty', brewT: 0 };
+    g.add(body, head, spout, lamp, ring, cup, ...steam, sring);
+    return { x, lampMat, ring, sring, cup, steam, state: 'empty', brewT: 0, servedFlag: false, pile: [] };
   }
 
   /** Paint a robot's colour on its own spot. */
@@ -84,9 +87,21 @@ export class CoffeeLine {
     s.cup.visible = bar.machine !== 'empty';
     s.lampMat.color.set(LAMP[bar.machine] ?? LAMP.empty);
     s.cup.userData.coffee.position.y = bar.machine === 'ready' ? 0.082 : bar.machine === 'brewing' ? 0.03 + 0.05 * (1 - Math.min(1, bar.left / 8)) : 0.011;
-    s.served.visible = !!bar.served;
-    if (bar.served) s.served.userData.coffee.position.y = 0.082;
+    s.cup.userData.coffee.visible = bar.machine === 'brewing' || bar.machine === 'ready';
+    // Every cup a robot serves stays on the counter (a 3x3 grid on its spot; the oldest is replaced when it is full).
+    if (bar.served && !s.servedFlag) {
+      s.servedFlag = true;
+      const n = s.pile.length < 9 ? s.pile.length : this.slotsServed(s) % 9;
+      let cup = s.pile[n];
+      if (!cup) { cup = cupMesh(); cup.userData.coffee.visible = true; cup.userData.coffee.position.y = 0.082; s.pile[n] = cup; this.scene.add(cup); }
+      const col = n % 3, row = Math.floor(n / 3);
+      cup.position.set(s.x + (col - 1) * 0.15, TOP, BAR.serveZ + (row - 1) * 0.2);
+      s.count = (s.count ?? 0) + 1;
+    }
+    if (!bar.served) s.servedFlag = false;
   }
+
+  slotsServed(s) { return s.count ?? 0; }
 
   update(now) {
     for (const s of this.slots) {
