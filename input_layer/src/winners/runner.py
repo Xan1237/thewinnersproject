@@ -100,8 +100,9 @@ def run_episode(
             step_kw["label"] = held_label
         if "model" in step_ok:
             step_kw["model"] = policy.name
-        if "detail" in step_ok and decided and held_detail:
-            step_kw["detail"] = held_detail
+        if "detail" in step_ok and decided:
+            # What the model said (plan, odds) plus what the decision cost: it ends up in the labeled data.
+            step_kw["detail"] = {**(held_detail or {}), "latency_s": round(latency, 4), "cost_usd": round(cost, 6)}
         obs, reward, done, info = env.step(held, **step_kw)
         total_reward += reward
         steps.append(

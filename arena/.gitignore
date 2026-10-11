@@ -2,3 +2,4 @@ node_modules/
 dist/
 public/g1/
 *.log
+data/

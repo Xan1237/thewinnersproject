@@ -2,17 +2,24 @@ import * as THREE from 'three';
 import { G1 } from './g1.js';
 import { HOLD_POSE, gaitJoints } from '../server/core.js';
 import { getClip } from './animations.js';
+import { kindOf, KIND_LABEL } from './kinds.js';
 
 const STEP_SAMPLE = 0.1; // seconds between path samples (matches the sim: 5 samples per 0.5 s step)
 const lerpAngle = (a, b, t) => a + (((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * t;
 
-function makeTag(text, sub, color) {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = 'rgba(12,16,24,.86)'; g.beginPath(); g.roundRect(4, 4, 504, 120, 18); g.fill();
-  g.strokeStyle = color; g.lineWidth = 4; g.stroke();
-  g.fillStyle = color; g.font = '600 38px system-ui, sans-serif'; g.fillText(text.slice(0, 22), 22, 52);
-  g.fillStyle = '#dfe6f1'; g.font = '30px system-ui, sans-serif'; g.fillText((sub || '').slice(0, 30), 22, 100);
+function makeTag(text, sub, color, kind = 'frontier') {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 160;
+  const g = c.getContext('2d'), trained = kind === 'trained';
+  g.fillStyle = trained ? 'rgba(40,30,4,.92)' : 'rgba(12,16,24,.86)'; g.beginPath(); g.roundRect(4, 4, 504, 152, 18); g.fill();
+  g.strokeStyle = color; g.lineWidth = trained ? 7 : 4; g.stroke();
+  // what kind of decision-maker this is
+  g.font = '700 22px system-ui, sans-serif';
+  const badge = trained ? '★ TRAINED MODEL · 0 tokens' : kind === 'scripted' ? 'SCRIPTED TEACHER' : 'FRONTIER · via Jev';
+  const w = g.measureText(badge).width + 24;
+  g.fillStyle = trained ? color : '#27324a'; g.beginPath(); g.roundRect(18, 14, w, 32, 16); g.fill();
+  g.fillStyle = trained ? '#241a00' : '#9fb4d8'; g.fillText(badge, 30, 38);
+  g.fillStyle = color; g.font = '600 38px system-ui, sans-serif'; g.fillText(text.slice(0, 22), 22, 90);
+  g.fillStyle = '#dfe6f1'; g.font = '28px system-ui, sans-serif'; g.fillText((sub || '').slice(0, 32), 22, 134);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -22,6 +29,7 @@ export class Actor {
     this.id = start.session;
     this.model = model;
     this.color = color;
+    this.kind = kindOf(model);
     this.g1 = new G1(template, { color });
     this.scene = scene;
     scene.add(this.g1.group);
@@ -30,10 +38,19 @@ export class Actor {
     this.clock = 0;
     this.index = 0;
     this.cur = { ...this.keys[0] };
-    this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTag(model, 'ready', color), depthTest: false, transparent: true }));
-    this.tag.scale.set(1.5, 0.375, 1); this.tag.position.y = 1.75; this.tag.renderOrder = 10;
+    this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTag(model, 'ready', color, this.kind), depthTest: false, transparent: true }));
+    this.tag.scale.set(1.5, 0.469, 1); this.tag.position.y = 1.8; this.tag.renderOrder = 10;
     this.g1.group.add(this.tag);
     this.tagLabels = [];     // [{t, text}] label to show once the clock reaches t
+    if (this.kind === 'trained') {
+      // Our own model gets a gold halo and a light beam so it can't be mistaken for a frontier model.
+      const gold = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+      this.halo = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.58, 64), gold);
+      this.halo.rotation.x = -Math.PI / 2; this.halo.position.y = 0.012;
+      this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 3.2, 40, 1, true), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
+      this.beam.position.y = 1.6;
+      this.g1.group.add(this.halo, this.beam);
+    }
     this.cupFactory = cupFactory;
     this.cup = start.task === 'fetch_coffee' ? cupFactory() : null;
     if (this.cup) scene.add(this.cup);
@@ -112,10 +129,11 @@ export class Actor {
     if (idle) { k.blend = THREE.MathUtils.damp(this.cur.blend, 0, 6, dt); k.phase = this.cur.phase; }
     this.cur = k;
     this.applyPose(k, dt);
+    if (this.halo) { const p = (performance.now() / 900) % 1; this.halo.scale.setScalar(1 + 0.35 * p); this.halo.material.opacity = 0.9 * (1 - p); this.beam.material.opacity = 0.08 + 0.05 * Math.sin(performance.now() / 400); }
     while (this.tagLabels.length && this.tagLabels[0].t <= this.clock) {
       const { text } = this.tagLabels.shift();
       this.tag.material.map.dispose();
-      this.tag.material.map = makeTag(this.model, text || '…', this.color);
+      this.tag.material.map = makeTag(this.model, text || '…', this.color, this.kind);
     }
     if (this.index > 40) { this.keys.splice(0, this.index - 1); this.index = 1; }
   }

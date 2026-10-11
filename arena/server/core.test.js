@@ -1,3 +1,5 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -75,7 +77,7 @@ test('fetch_coffee: picking up requires being close', () => {
 });
 
 test('HTTP API: session lifecycle, SSE, validation', async () => {
-  const { server } = createServer();
+  const { server } = createServer({ dataDir: mkdtempSync(join(tmpdir(), 'arena-data-')) });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, b) => fetch(base + p, { method: 'POST', body: JSON.stringify(b) }).then(async r => [r.status, await r.json()]);

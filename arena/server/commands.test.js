@@ -1,3 +1,5 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -70,7 +72,7 @@ test('spoken orders map to tasks (rule fallback, no API key)', async () => {
 });
 
 test('HTTP: command + task endpoints', async () => {
-  const { server } = createServer();
+  const { server } = createServer({ dataDir: mkdtempSync(join(tmpdir(), 'arena-data-')) });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, b) => fetch(base + p, { method: 'POST', body: JSON.stringify(b) }).then(r => r.json());

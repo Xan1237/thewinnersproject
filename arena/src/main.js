@@ -7,6 +7,7 @@ import { Actor } from './actor.js';
 import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
 import { setupVoice } from './voice.js';
+import { setupDataView } from './dataview.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -105,6 +106,7 @@ let template = null;
 const pending = [];
 
 const onVoiceEvent = setupVoice();
+setupDataView();
 function handle(ev) {
   panel.onEvent(ev);
   onVoiceEvent(ev);

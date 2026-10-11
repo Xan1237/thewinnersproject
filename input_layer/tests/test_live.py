@@ -38,7 +38,7 @@ def test_voice_order_reaches_every_agent(tmp_path):
 
     port = 18890
     proc = subprocess.Popen(
-        ["node", str(SERVER)], env={**os.environ, "SIM_PORT": str(port)}, stdout=subprocess.DEVNULL
+        ["node", str(SERVER)], env={**os.environ, "SIM_PORT": str(port), "ARENA_DATA_DIR": str(tmp_path / "data")}, stdout=subprocess.DEVNULL
     )
     base = f"http://127.0.0.1:{port}"
     stop = threading.Event()

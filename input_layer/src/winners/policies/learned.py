@@ -24,8 +24,33 @@ class LearnedPolicy:
     def decide(
         self, obs: Observation, task: str, action_spec: ActionSpec, history: list[Step]
     ) -> Action:
+        import time
+
+        started = time.perf_counter()
         c = self._ckpt
         x = (self._torch.tensor(obs.state, dtype=self._torch.float32).numpy() - c["x_mean"]) / c["x_std"]
         with self._torch.no_grad():
             y = self._model(self._torch.from_numpy(x[None, :]))[0].numpy()
-        return Action(values=(y * c["y_std"] + c["y_mean"]).astype(float).tolist())
+        values = (y * c["y_std"] + c["y_mean"]).astype(float).tolist()
+        return Action(
+            values=values,
+            label=_describe(values),
+            meta={"latency_s": time.perf_counter() - started, "cost_usd": 0.0, "detail": {"policy": "bc-mlp", "tokens": 0}},
+        )
+
+
+def _describe(v: list[float]) -> str:
+    """A human label for the dominant part of [forward, right, turn, interact]."""
+    forward, right, turn, interact = (list(v) + [0, 0, 0, 0])[:4]
+    if interact > 0.5:
+        return "pick up"
+    parts = []
+    if forward > 0.25:
+        parts.append("walk forward")
+    elif forward < -0.25:
+        parts.append("step back")
+    if abs(right) > 0.25:
+        parts.append("sidestep right" if right > 0 else "sidestep left")
+    if abs(turn) > 0.2:
+        parts.append("turn left" if turn > 0 else "turn right")
+    return " + ".join(parts) or "hold"
