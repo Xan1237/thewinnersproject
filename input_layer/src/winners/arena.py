@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -27,9 +28,21 @@ def _run_policy(
     seeds: list[int],
     decision_interval: int,
     max_steps: int,
+    stop: threading.Event | None = None,
 ) -> list[Episode]:
     env = env_factory()
-    return [run_episode(env, policy, s, decision_interval, max_steps) for s in seeds]
+    results = []
+    try:
+        for seed in seeds:
+            if stop is not None and stop.is_set():
+                break
+            results.append(run_episode(env, policy, seed, decision_interval, max_steps,
+                                       cancelled=stop.is_set if stop is not None else None))
+        return results
+    finally:
+        closer = getattr(env, "close", None)
+        if callable(closer):
+            closer()
 
 
 def run_arena(
@@ -39,13 +52,14 @@ def run_arena(
     seed0: int = 0,
     decision_interval: int = 1,
     max_steps: int = 500,
+    stop: threading.Event | None = None,
 ) -> list[Episode]:
     """Each policy runs the same seeds, sequentially, on its own thread (so each
     provider is naturally rate-limited to one in-flight request per model)."""
     seeds = list(range(seed0, seed0 + episodes))
     with ThreadPoolExecutor(max_workers=max(len(policies), 1)) as pool:
         futures = [
-            pool.submit(_run_policy, env_factory, p, seeds, decision_interval, max_steps)
+            pool.submit(_run_policy, env_factory, p, seeds, decision_interval, max_steps, stop)
             for p in policies
         ]
         return [ep for f in futures for ep in f.result()]

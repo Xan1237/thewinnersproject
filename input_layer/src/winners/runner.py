@@ -42,6 +42,7 @@ def run_episode(
     resume: bool = False,
     close: bool = True,
     interrupt: Callable[[], str | None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> Episode:
     """Roll out `policy` on `env`.
 
@@ -71,6 +72,8 @@ def run_episode(
     total_reward = 0.0
 
     for t in range(max_steps):
+        if cancelled is not None and cancelled():
+            break
         if interrupt is not None and (interrupted := interrupt()):
             break
         decided = t % decision_interval == 0
@@ -93,6 +96,10 @@ def run_episode(
         else:
             latency = cost = 0.0
             flags = []
+
+        # A provider request may have been in flight when the operator stopped the run.
+        if cancelled is not None and cancelled():
+            break
 
         state_before = obs.state
         step_kw: dict[str, Any] = {}
@@ -136,5 +143,5 @@ def run_episode(
         steps=steps,
         success=bool(info.get("success", False)),
         total_reward=total_reward,
-        meta={"decision_interval": decision_interval, **({"interrupted": True, "next_task": interrupted} if interrupted else {})},
+        meta={"decision_interval": decision_interval, **({"interrupted": True, "next_task": interrupted} if interrupted else {}), **({"cancelled": True} if cancelled is not None and cancelled() else {})},
     )

@@ -15,7 +15,8 @@ python -m venv .venv
 .venv\Scripts\python -m pytest
 .venv\Scripts\python -m winners.arena --config configs/default.yaml --out runs/run1
 ```
-API keys are read from environment variables only: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`.
+On macOS/Linux, use `.venv/bin/pip` and `.venv/bin/python` in the commands above.
+API keys are read from environment variables only: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`.
 
 ## Wiring in your robot or scene
 Implement `winners.env.base.RobotEnv` — this is the only seam:
@@ -47,6 +48,31 @@ Use `{type: learned, checkpoint: checkpoints/bc.pt}` in the config to benchmark 
 - OpenAI-compatible policies (`openai`, `local`, `openrouter`) accept `extra_body` (merged into the request JSON, e.g. OpenRouter provider pinning), `extra_headers` and `api_key_env`.
 - `train_bc(..., training_events_url=".../sim/training")` and `winners.train.evaluate.evaluate_policy(..., training_events_url=...)` POST per-epoch / eval events (best effort, never fail training).
 - Tests run against a stdlib fake of the server: `tests/fake_sim.py`.
+
+## Live collection and training
+
+With the main sim/viewer and the separate bootstrap sim running at the configured URLs:
+
+```
+python -m winners.show --config configs/g1_arena.yaml --out runs/g1-show --duration 240
+```
+
+The duration stops collection and cancels training at an epoch boundary. In-flight provider
+requests finish according to their configured timeout/retry limits. Ctrl+C and SIGTERM use
+the same cleanup path. A worker or model-publication failure ends the show with an error.
+
+The default first round needs ten successful collection runs, at least eight successful runs
+in total, and completion of every scripted bootstrap routine. For a shorter bounded experiment,
+set `show.routines`, `show.bootstrap_episodes`, `show.first_round_wins`, and
+`show.min_train_episodes` explicitly. Those settings change data volume, not the success rule.
+`episodes_all.jsonl` contains live attempts; `episodes_farm.jsonl` identifies scripted bootstrap
+episodes separately; `training_round_N.json` lists the selected episode IDs and source counts.
+
+Jev and its orchestrator choose targets from a simulator-generated text description of the
+room. The scripted teachers and learned network receive numeric state containing the
+simulator-selected goal position. The learned network does not read the task wording or
+images; language routing and routine progression are handled by the simulator. A low
+validation loss alone does not establish successful task completion.
 
 ## Caveats
 - Check each provider's terms on using model outputs to train another model.

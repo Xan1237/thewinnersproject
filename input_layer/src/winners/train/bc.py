@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,7 @@ def train_bc(
     seed: int = 0,
     training_events_url: str | None = None,
     epoch_delay_s: float = 0.0,
+    stop: threading.Event | None = None,
 ) -> tuple[dict[str, Any], dict[str, float]]:
     """Returns (checkpoint, metrics). Checkpoint is self-contained (weights + normalization
     + action spec) so `LearnedPolicy` needs nothing else.
@@ -56,6 +58,8 @@ def train_bc(
         yv = torch.from_numpy((ds.y_val - ds.y_mean) / ds.y_std)
 
     for epoch in range(1, epochs + 1):
+        if stop is not None and stop.is_set():
+            raise InterruptedError("training cancelled")
         perm = torch.randperm(len(x))
         total = 0.0
         for i in range(0, len(x), batch_size):
@@ -74,7 +78,10 @@ def train_bc(
                 model.train()
             sink.send(phase="epoch", epoch=epoch, loss=total / len(x), val_loss=val_loss)
             if epoch_delay_s:
-                time.sleep(epoch_delay_s)  # slows training down so the live chart is watchable
+                if stop is not None:
+                    stop.wait(epoch_delay_s)
+                else:
+                    time.sleep(epoch_delay_s)  # slows training down so the live chart is watchable
 
     model.eval()
     metrics: dict[str, float] = {}
