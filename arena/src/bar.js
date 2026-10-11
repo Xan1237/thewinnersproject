@@ -43,8 +43,8 @@ export class CoffeeLine {
     if (table) for (const z of [BAR.machineZ, BAR.serveZ]) for (const dx of [-0.9, 0.9]) {
       const t = table.clone(true); t.position.set(cx + dx, 0, z); scene.add(t);
     }
-    const a = sign('COFFEE MACHINES', '#ffcf6b'); a.position.set(cx, 1.75, BAR.machineZ + 0.5); scene.add(a);
-    const b = sign('SERVING COUNTER', '#7fe3ff'); b.position.set(cx, 1.75, BAR.serveZ - 0.5); scene.add(b);
+    const a = sign('COFFEE MACHINES', '#ffcf6b'); a.position.set(cx, 1.45, BAR.machineZ + 1.0); scene.add(a);
+    const b = sign('SERVING COUNTER', '#7fe3ff'); b.position.set(cx, 1.45, BAR.serveZ - 0.9); scene.add(b);
     const c = sign('CUP TABLE', '#f1f1eb'); c.position.set(4.6, 1.45, 1.4); scene.add(c);
     for (const [x, z] of [[4.62, 1.3], [4.95, 1.45], [5.25, 1.3], [4.62, 1.55], [5.25, 1.55]]) { const cup = cupMesh(); cup.position.set(x, TOP, z); scene.add(cup); }
     for (let i = 0; i < BAR.slots; i++) this.slots.push(this.makeSlot(scene, BAR.x0 + BAR.dx * i));

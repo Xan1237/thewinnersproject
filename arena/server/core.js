@@ -417,6 +417,9 @@ export class Session {
     if (this.plan.length > 1) lines.push(`Progress: part ${this.stage + 1} of ${this.plan.length}${this.stage ? ' (the first part is done)' : ''}.`);
     lines.push(`You are at x=${this.x.toFixed(1)}, z=${this.z.toFixed(1)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees. ${this.holding ? 'You are holding a coffee cup.' : 'Your hands are empty.'}${this.seated ? ' You are sitting down.' : ''}`);
     if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
+    const inReach = this.spec.kind === 'fetch_coffee' ? !this.holding && this.goalDist() <= COFFEE_RADIUS
+      : this.spec.kind === 'station' && this.spec.op !== 'wait' && this.goalDist() <= STATION_RADIUS;
+    if (inReach) lines.push('What this part needs is within your reach right now, so you can use it (pick up / put down / press).');
     if (this.plan.some(s => s.startsWith('station:'))) {
       const m = this.machine;
       lines.push(`Your coffee spout: ${{ empty: 'empty', cup: 'your cup is under it, not brewing yet', brewing: `brewing (about ${Math.max(m.left, 1)} more steps)`, ready: 'the coffee is ready' }[m.state]}.${this.served ? ' Your cup is on the serving counter.' : ''}`);
