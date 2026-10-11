@@ -15,6 +15,7 @@
           <button data-view="stage">Stage</button>
           <button data-view="follow">Follow</button>
           <button id="preview-seat">Sit in armchair</button>
+          <button id="databtn">Labeled data</button>
           <label>Speed
             <select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
           </label>
@@ -22,6 +23,12 @@
       </header>
       <div id="loading">Loading the room and the robot…</div>
       <div id="connection" class="conn off">sim offline</div>
+      <div id="voice">
+        <div id="heard" hidden></div>
+        <button id="mic" aria-label="Give an order by voice"><svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2z"/></svg></button>
+        <div id="micstatus">Click to give an order</div>
+        <input id="typebox" hidden placeholder="Type an order and press Enter" />
+      </div>
     </main>
     <aside id="panel">
       <nav class="tabs">
@@ -35,21 +42,37 @@
       </section>
       <section id="tab-arena" class="tab">
         <div class="hint">Models compete on the same tasks. Only successful runs become training data.</div>
-        <table id="board"><thead><tr><th>Model</th><th>Runs</th><th>Success</th><th>Avg steps</th><th>Now</th></tr></thead><tbody></tbody></table>
+        <table id="board"><thead><tr><th>Model</th><th>Runs</th><th>Success</th><th>Steps</th><th>Time / decision</th><th>$ / task</th><th>Now</th></tr></thead><tbody></tbody></table>
         <div id="datastat"></div>
       </section>
       <section id="tab-training" class="tab">
-        <div class="hint">A small policy learns from the successful runs, so it can do the task without paying per token.</div>
+        <div class="hint">Frontier models do the task, the winners become labeled data, and a tiny network learns to do it alone: no tokens, no waiting.</div>
+        <div id="pipeline"></div>
         <div id="trainstatus" class="status">Waiting for training to start…</div>
+        <h4>Frontier vs. our trained model</h4>
+        <div id="h2h"></div>
+        <h4>Inside the trained model</h4>
+        <canvas id="netviz" width="360" height="250"></canvas>
+        <div id="netread"></div>
+        <h4>Where the robots walk</h4>
         <canvas id="minimap" width="360" height="300"></canvas>
-        <div class="legend"><span class="l3">learned policy: reached</span><span class="l5">learned policy: failed</span><span class="l4">teacher runs</span></div>
+        <div class="legend"><span class="l6">trained model: reached</span><span class="l5">trained model: failed</span><span class="l4">frontier / teacher runs</span></div>
+        <h4>Learning curve</h4>
         <canvas id="losschart" width="360" height="170"></canvas>
         <div class="legend"><span class="l1">train loss</span><span class="l2">val loss</span></div>
+        <h4>Trained model success rate</h4>
         <canvas id="evalchart" width="360" height="150"></canvas>
-        <div class="legend"><span class="l3">learned policy success rate</span><span class="l4">teacher models</span></div>
+        <div class="legend"><span class="l6">trained model</span><span class="l4">best frontier / teacher</span></div>
         <div id="trainstats"></div>
       </section>
     </aside>
+  </div>
+  <div id="dataview" hidden>
+    <div class="dwin">
+      <div class="dtop"><div><h3>Labeled data</h3><div id="datasummary" class="mute"></div></div>
+        <div class="dactions"><a id="dataall" class="btn" download>Download everything (.json)</a><button id="dataclose" class="btn">Close</button></div></div>
+      <div class="dcols"><div id="datalist"></div><div id="dataeps"></div><div id="databody"><div id="dataep"></div></div></div>
+    </div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>

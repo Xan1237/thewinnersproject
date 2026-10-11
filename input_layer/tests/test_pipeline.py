@@ -29,3 +29,10 @@ def test_pipeline_with_scripted_top_up(tmp_path):
         start = next(e for e in sim.events if e.get("phase") == "start")
         assert start["from_llm"] > 0 and start["from_scripted"] > 0
         assert (tmp_path / "bc.pt").exists()
+        import json
+
+        model = json.loads((tmp_path / "policy.json").read_text())
+        assert model["sizes"][0] == 8 and model["sizes"][-1] == 4
+        assert len(model["layers"]) == len(model["sizes"]) - 1
+        assert len(model["layers"][0]["w"]) == model["sizes"][1]  # rows = output units
+        assert model["params"] == sum(len(l["w"]) * len(l["w"][0]) + len(l["b"]) for l in model["layers"])

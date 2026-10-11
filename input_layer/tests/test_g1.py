@@ -85,6 +85,19 @@ def test_fetch_coffee_needs_interact_near_station(sim):
     assert ep.steps[-1].label == "grab the coffee"
 
 
+def test_teacher_starts_seating_near_front_approach_and_waits_for_animation():
+    spec = ActionSpec(names=["forward", "right", "turn", "interact"], low=[-1, -1, -1, 0], high=[1, 1, 1, 1])
+    policy = GoalSeekPolicy()
+    obs = Observation(t=0, state=[0, 0, 0, .6, 0, .6, 0, 1])
+    task = "Walk to the front approach and set interact > 0.5 to sit."
+    assert policy.decide(obs, task, spec, []).values == [0, 0, 0, 1]
+    obs.text = "Sitting animation in progress (0.70 / 3.40 s)."
+    assert policy.decide(obs, task, spec, []).values == [0, 0, 0, 0]
+    obs.text = "Approach the chair."
+    obs.state[5] = .7
+    assert policy.decide(obs, "sit:armchair_blue", spec, []).values[3] == 0
+
+
 def test_runner_records_label_and_joints_and_passes_model(sim):
     env = G1SimEnv(base_url=sim.url, max_steps=60)
     ep = run_episode(env, GoalSeekPolicy(name="teacher"), seed=0, max_steps=60)
@@ -282,8 +295,11 @@ def test_g1_arena_config_builds_without_network():
     assert cfg["env"]["type"] == "g1-sim"
     assert isinstance(build_env_factory(cfg["env"])(), G1SimEnv)
     pols = {p["name"]: build_policy(p) for p in cfg["policies"]}
-    assert pols["qwen-27b"].extra_body["provider"]["allow_fallbacks"] is False
-    assert pols["qwen-27b"].api_key_env == "OPENROUTER_API_KEY"
-    assert pols["gpt-6-luna"].model == "openai/gpt-6-luna"
-    assert pols["qwen-27b"].extra_body["reasoning"] == {"enabled": False}
-    assert pols["claude-haiku"].obs_names[3] == "goal_forward"
+    from winners.policies.decision import JevOrchestratedPolicy
+
+    assert len(pols) >= 5 and all(isinstance(p, JevOrchestratedPolicy) for p in pols.values())
+    assert {p.jev_model for p in pols.values()} == {"typesafe/jev-1.13"}  # same decision model for all
+    assert len({p.orchestrator for p in pols.values()}) == len(pols)  # different orchestrators
+    assert all(p.api_key_env == "OPENROUTER_API_KEY" for p in pols.values())
+    qwen = pols["qwen-3.8-27b"].extra_body["provider"]
+    assert qwen == {"only": ["cerebras"], "allow_fallbacks": False}

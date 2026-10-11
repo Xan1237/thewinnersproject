@@ -46,7 +46,8 @@ export class G1 {
     this.group.add(this.ring);
   }
 
-  setJoints(angles, pelvisHeight = null) {
+  /** angles: joint name -> rad. pelvisDrop: metres (negative lifts). root: optional {pos:[x,y], quat:[x,y,z,w]} pelvis motion from a captured clip. pelvisHeight: fitted seat height above ground; overrides regrounding. */
+  setJoints(angles, pelvisDrop = 0, root = null, pelvisHeight = null) {
     for (const [name, v] of this.joints) {
       const a = angles[name] ?? 0;
       const c = Math.min(Math.max(a, v.min), v.max);
@@ -54,6 +55,11 @@ export class G1 {
     }
     this.pelvis.position.copy(this.pelvisRest);
     this.pelvis.quaternion.copy(this.pelvisRestQ);
+    if (root) {
+      this.pelvis.position.x += root.pos[0];
+      this.pelvis.position.y += root.pos[1];
+      this.pelvis.quaternion.premultiply(this.q.set(...root.quat));
+    }
     if (Number.isFinite(pelvisHeight)) {
       this.pelvis.position.z = pelvisHeight;
       this.group.updateMatrixWorld(true);
@@ -64,6 +70,7 @@ export class G1 {
     for (const foot of this.feet) { this.box.setFromObject(foot); lowest = Math.min(lowest, this.box.min.y); }
     // Keep the soles on the ground: native pelvis Z is vertical.
     if (Number.isFinite(lowest)) this.pelvis.position.z -= lowest - this.group.position.y;
+    this.pelvis.position.z -= pelvisDrop;
   }
 
   handWorld(out = new THREE.Vector3()) {

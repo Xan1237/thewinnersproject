@@ -12,7 +12,7 @@ All numbers are SI units, radians, world Y up. At heading 0 the robot faces worl
 The room: `{"bounds": {"minX","maxX","minZ","maxZ"}, "objects": [{"id","name","kind","x","z","sx","sz","height","solid": bool}]}`. `x`,`z` is the centre, `sx`,`sz` the footprint size. LLM context and collision data come from here.
 
 ### `POST /sim/sessions`
-Body: `{"task": "goto:armchair_blue" | "fetch_coffee" | "sit:armchair_blue", "seed": 0, "model": "claude-sonnet", "max_steps": 120}`.
+Body: `{"task": "sit:armchair_blue", "seed": 0, "model": "claude-sonnet", "max_steps": 120}`. Task choices are listed below.
 Response: `{"id", "task_description", "action_spec": {"names","low","high","units"}, "observation_spec": {"names","description"}, "observation": {"t","state","text"}}`.
 
 ### `POST /sim/sessions/{id}/step`
@@ -20,12 +20,15 @@ Body: `{"action": [forward, right, turn, interact], "label": "walk toward the ar
 Action semantics (all clipped to the spec): `forward`/`right` in [-1,1] are speed fractions of 1.5 m/s relative to the heading; `turn` in [-1,1] is a fraction of 1.5 rad/s (positive = turn left, counter-clockwise seen from above; the heading increases); `interact` in [0,1], `> 0.5` means "grab / interact" (only valid next to the station). One step advances the sim by `dt = 0.5` s (internally sub-stepped at 20 ms).
 Response: `{"observation": {"t","state","text"}, "reward": float, "done": bool, "info": {"success": bool, "reason": "...", "position": [x,z], "heading": float, "joints": {name: angle}, "collided": bool}}`.
 
-`info` also includes `seating`, `seated`, `seat_time` (seconds, -1 before sitting), and `pelvis_height` (metres above the ground, null for the walking pose). `observation` exposes the seating flags and time alongside its unchanged eight-number vector.
+For the fitted armchair animation, `info` also includes `seating`, `seated`, `seat_time` (seconds, -1 before sitting), and `pelvis_height` (metres above the ground, null for the walking pose). `observation` exposes the seating flags and time alongside its unchanged eight-number vector. Generic chair/emote playback uses `pose`, `pose_s`, and `pose_offset` in the step event.
 
 `info.joints` holds the gait/arm joint angles at the end of the step. This is the "nested motor data" shown beside the label.
 
 ### `GET /sim/sessions/{id}` and `DELETE /sim/sessions/{id}`
 State snapshot (same shape as a step response without the action) and cleanup.
+
+### `POST /sim/sessions/{id}/task`
+Body: `{"task":"wave"}`. Retasks an existing robot where it stands, clearing the previous seating state; the viewer receives a `task_changed` event. A voice order or typed order uses `POST /sim/command`; the live agents poll `GET /sim/command` and apply the task to their sessions. See the arena README for voice setup.
 
 ### `GET /sim/events` (Server-Sent Events)
 One JSON event per step for every session: `{"session","model","task","t","action","label","position","heading","joints","reward","done","success","ts"}`. Also `session_started` and `session_ended` events. The UI right panel is driven by this stream.
@@ -40,14 +43,16 @@ One JSON event per step for every session: `{"session","model","task","t","actio
 ## Tasks
 - `goto:<object_id>`: success when the robot is within 1.2 m of the object's centre.
 - `sit:armchair_blue`: navigate to the free front approach shown by the goal vector, then send `interact > 0.5` within 0.65 m. The robot aligns, lowers onto the seat, and becomes successful only after the complete sitting animation. During this motion, movement actions are ignored; send `[0,0,0,0]` to advance time. The target uses the actual room armchair at (1.5, -3.7), yaw 155 degrees, on the 0.35 m stage; front is chair local -Z.
+- `sit`, `sit:any`, `sit:<other_chair_id>`: pick an available chair; an occupied requested chair falls back to another free chair. If the selected chair is `armchair_blue`, the fitted front-approach/interaction contract above applies. For other chairs, arriving within 0.95 m of the center triggers the generic sitting clip from the arena registry, including bundled Kimodo clips. Read `task_description` for the resolved target and interaction instructions.
 - `fetch_coffee`: success when `interact > 0.5` is sent within 0.9 m of the coffee station on the table, so that `holding == 1`.
+- `jump`, `wave`, `dance`, `cheer`: complete in one step and play the corresponding viewer clip. `idle` leaves the robot waiting for a new task.
 
 Reward: `+1` on success, `-0.01` per step, plus a small shaping term of `0.1 * (previous_goal_dist - goal_dist)`.
 
 
 ## Sitting preview and playback
 
-The Arena **Sit in armchair** button starts `sit:armchair_blue` with `preview: true`, placing a new demo robot at the free front approach, and advances it through the full animation. Normal sessions keep deterministic random starts. `preview` has no effect on other tasks. Example:
+The Arena **Sit in armchair** button starts `sit:armchair_blue` with `preview: true`, placing a new demo robot at the free front approach, and advances it through the full animation. Normal sessions keep deterministic random starts. Preview requires an available blue armchair; other tasks or an occupied chair return an error. Repeating the button replaces its own previous demo session. Example:
 
 ```sh
 curl -s http://127.0.0.1:8818/sim/sessions -H 'Content-Type: application/json' \

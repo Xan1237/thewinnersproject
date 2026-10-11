@@ -98,7 +98,7 @@ def run_pipeline(cfg: dict, out: Path) -> dict:
     n_samples = len(ds.x_train) + len(ds.x_val)
     print(f"training on {len(kept)} successful episodes, {n_samples} samples")
     from_llm = sum(e.model_id in {p.name for p in policies} for e in kept)
-    sink.send(phase="start", episodes=len(kept), samples=n_samples, from_llm=from_llm, from_scripted=len(kept) - from_llm)
+    sink.send(phase="start", epochs=train.get("epochs", 100), collected=len(episodes), episodes=len(kept), samples=n_samples, from_llm=from_llm, from_scripted=len(kept) - from_llm)
 
     env = build_env_factory({**env_cfg, "task": tasks[0]})()
     ckpt, metrics = train_bc(
@@ -110,6 +110,11 @@ def run_pipeline(cfg: dict, out: Path) -> dict:
         epoch_delay_s=train.get("epoch_delay_s", 0.0),
     )
     path = save_checkpoint(ckpt, out / "bc.pt")
+    from winners.train.export import checkpoint_to_json, post_model
+
+    model_json = checkpoint_to_json({**ckpt, "state_names": list(getattr(env.observation_spec, "names", []) or [])})
+    (out / "policy.json").write_text(json.dumps(model_json), encoding="utf-8")
+    post_model(f"{base_url}/sim/model", model_json)  # the viewer draws the network from this
     print("train metrics:", metrics)
 
     learned = LearnedPolicy(path)

@@ -41,7 +41,7 @@ func _init() -> void:
 # One entry per object the robot can see or bump into. x,z = centre, sx,sz = footprint.
 func reg(id: String, kind: String, pos: Vector3, size: Vector3, solid := true, rot_y := 0.0) -> void:
 	manifest.append({"id": id, "name": id.replace("_", " "), "kind": kind, "x": snappedf(pos.x, 0.001), "z": snappedf(pos.z, 0.001),
-		"sx": snappedf(size.x, 0.001), "sz": snappedf(size.z, 0.001), "height": snappedf(size.y, 0.001), "solid": solid})
+		"sx": snappedf(size.x, 0.001), "sz": snappedf(size.z, 0.001), "height": snappedf(size.y, 0.001), "solid": solid, "rot": rot_y})
 
 
 func _write_manifest() -> void:
@@ -348,13 +348,13 @@ func _build_stage() -> void:
 	var y := 0.35
 	inst(model("chair_navy"), st, Vector3(-1.9, y, 0.1), 205.0, "ChairLeft")
 	cbox("ChairLeftCol", st, Vector3(-1.9, y + 0.43, 0.1), Vector3(0.55, 0.85, 0.55))
-	reg("chair_navy_left", "chair", STAGE_POS + Vector3(-1.9, 0, 0.1), Vector3(0.55, 0.85, 0.55))
+	reg("chair_navy_left", "chair", STAGE_POS + Vector3(-1.9, 0, 0.1), Vector3(0.55, 0.85, 0.55), true, 205.0)
 	inst(model("chair_navy"), st, Vector3(-0.5, y, -0.1), 180.0, "ChairMiddle")
 	cbox("ChairMiddleCol", st, Vector3(-0.5, y + 0.43, -0.1), Vector3(0.55, 0.85, 0.55))
-	reg("chair_navy_middle", "chair", STAGE_POS + Vector3(-0.5, 0, -0.1), Vector3(0.55, 0.85, 0.55))
+	reg("chair_navy_middle", "chair", STAGE_POS + Vector3(-0.5, 0, -0.1), Vector3(0.55, 0.85, 0.55), true, 180.0)
 	inst(model("armchair_blue"), st, Vector3(1.1, y, 0.0), 155.0, "Armchair")
 	cbox("ArmchairCol", st, Vector3(1.1, y + 0.55, 0.0), Vector3(0.75, 1.1, 0.7))
-	reg("armchair_blue", "chair", STAGE_POS + Vector3(1.1, 0, 0.0), Vector3(0.75, 1.1, 0.7))
+	reg("armchair_blue", "chair", STAGE_POS + Vector3(1.1, 0, 0.0), Vector3(0.75, 1.1, 0.7), true, 155.0)
 	# Plants flanking the stage
 	inst(model("plant_tall"), scene_root, Vector3(-3.7, 0, -4.9), 20.0, "PlantTall")
 	cbox("PlantTallCol", scene_root, Vector3(-3.7, 1.0, -4.9), Vector3(0.6, 2.0, 0.6))
@@ -422,7 +422,7 @@ func _build_ceiling() -> void:
 # ---------------------------------------------------------------- audience
 func prop(nm: String, model_name: String, parent: Node, pos: Vector3, rot_y: float, col_size: Vector3) -> void:
 	inst(model(model_name), parent, pos, rot_y, nm)
-	reg(nm.to_snake_case(), model_name.split("_")[0], pos, col_size)
+	reg(nm.to_snake_case(), model_name.split("_")[0], pos, col_size, true, rot_y)
 	cbox(nm + "Col", parent, pos + Vector3(0, col_size.y * 0.5, 0), col_size)
 
 

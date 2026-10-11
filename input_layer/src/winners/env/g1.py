@@ -104,7 +104,12 @@ class G1SimEnv:
         return self._observation(data["observation"])
 
     def step(
-        self, action: list[float], *, label: str | None = None, model: str | None = None
+        self,
+        action: list[float],
+        *,
+        label: str | None = None,
+        model: str | None = None,
+        detail: dict[str, Any] | None = None,
     ) -> tuple[Observation, float, bool, dict[str, Any]]:
         if self.session_id is None:
             raise G1SimError("step() called before reset()")
@@ -114,6 +119,8 @@ class G1SimEnv:
         }
         if label:
             body["label"] = label
+        if detail:
+            body["detail"] = detail
         data = self._request("POST", f"/sim/sessions/{self.session_id}/step", body)
         info = dict(data.get("info") or {})
         info["success"] = bool(info.get("success", False))
@@ -124,6 +131,25 @@ class G1SimEnv:
             bool(data.get("done", False)),
             info,
         )
+
+    def current_observation(self) -> Observation:
+        """Observation of the live session (used when a run resumes after a retask)."""
+        if self.session_id is None:
+            raise G1SimError("no session")
+        return self._observation(self._request("GET", f"/sim/sessions/{self.session_id}")["observation"])
+
+    def retask(self, task: str) -> Observation:
+        """Give the live session a new task where the robot stands (voice orders)."""
+        if self.session_id is None:
+            raise G1SimError("retask() called before reset()")
+        data = self._request("POST", f"/sim/sessions/{self.session_id}/task", {"task": task})
+        self.task = task
+        self.task_description = str(data.get("task_description") or task)
+        return self._observation(data["observation"])
+
+    def command(self) -> dict[str, Any]:
+        """The latest operator order (`{"id": 0}` if none yet)."""
+        return self._request("GET", "/sim/command")
 
     def close(self) -> None:
         """Delete the server-side session (best effort; a missing session is fine)."""

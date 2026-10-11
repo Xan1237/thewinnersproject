@@ -6,6 +6,9 @@ import { loadG1Template } from './g1.js';
 import { Actor } from './actor.js';
 import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
+import { setupVoice } from './voice.js';
+import { setupDataView } from './dataview.js';
+import { loadGeneratedClips } from './animations.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -40,8 +43,7 @@ document.querySelectorAll('.views button[data-view]').forEach(b => b.onclick = (
 let speed = 1;
 $('speed').onchange = e => { speed = Number(e.target.value); };
 $('preview-seat').onclick = async () => {
-  const button = $('preview-seat');
-  button.disabled = true;
+  const button = $('preview-seat'); button.disabled = true;
   const post = async (path, body) => {
     const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const data = await response.json();
@@ -50,15 +52,16 @@ $('preview-seat').onclick = async () => {
   };
   try {
     setView('stage');
+    const existing = await fetch('/sim/sessions').then(response => response.json());
+    for (const s of existing.sessions || []) if (s.model === 'Seating demo' && s.task === 'sit:armchair_blue') await fetch(`/sim/sessions/${s.id}`, { method: 'DELETE' });
     const session = await post('/sim/sessions', { task: 'sit:armchair_blue', preview: true, model: 'Seating demo', max_steps: 16 });
     let result;
     do {
       result = await post(`/sim/sessions/${session.id}/step`, { action: [0, 0, 0, result ? 0 : 1], label: result ? 'wait while the robot sits down' : 'sit in the blue armchair' });
       if (!result.done) await new Promise(resolve => setTimeout(resolve, 500));
     } while (!result.done);
-  } catch (error) {
-    $('connection').textContent = error.message;
-  } finally { button.disabled = false; }
+  } catch (error) { $('connection').textContent = error.message; }
+  finally { button.disabled = false; }
 };
 
 function resize() {
@@ -90,6 +93,7 @@ async function loadRoom() {
   const [gltf, man] = await Promise.all([loader.loadAsync('/room/room.glb'), fetch('/room/manifest.json').then(r => r.json())]);
   manifest = man;
   const slide = new THREE.TextureLoader().load('/room/slide.jpg'); slide.colorSpace = THREE.SRGBColorSpace;
+  slide.flipY = false;  // the quad's UVs follow the glTF convention (v = 0 at the top)
   gltf.scene.traverse(n => {
     if (n.name === 'Ceiling' || n.name === 'WallSouth') n.visible = false;  // keep the view into the room open
     if (n.isMesh) {
@@ -124,8 +128,12 @@ const actors = new Map();
 let template = null;
 const pending = [];
 
+const onVoiceEvent = setupVoice();
+setupDataView();
+loadGeneratedClips();
 function handle(ev) {
   panel.onEvent(ev);
+  onVoiceEvent(ev);
   if (!template) { pending.push(ev); return; }
   applyActor(ev);
 }
@@ -138,8 +146,12 @@ function applyActor(ev) {
     actors.set(ev.session, new Actor(template, scene, ev, { color: panel.color(ev.model), model: ev.model, cupFactory: makeCup }));
   } else if (ev.type === 'step') {
     actors.get(ev.session)?.enqueue(ev);
+  } else if (ev.type === 'task_changed') {
+    actors.get(ev.session)?.retask(ev);
   } else if (ev.type === 'session_finished') {
     actors.get(ev.session)?.finish(ev.success);
+  } else if (ev.type === 'session_ended') {
+    const a = actors.get(ev.session); if (a) a.ended = true;
   } else if (ev.type === 'reset') {
     for (const a of actors.values()) a.dispose();
     actors.clear();
@@ -151,8 +163,8 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   for (const [id, a] of actors) {
     a.update(dt, speed);
-    // Seated successes hold the seat; other finished runs leave after a few seconds.
-    if (a.finished != null && a.lag <= 0 && !(a.finished && a.task === 'sit:armchair_blue')) { a.idleFor = (a.idleFor ?? 0) + dt; if (a.idleFor > 6) { a.dispose(); actors.delete(id); } }
+    // Finished runs linger for a few seconds, then leave the room.
+    if (a.ended && a.lag <= 0) { a.idleFor = (a.idleFor ?? 0) + dt; if (a.idleFor > 6) { a.dispose(); actors.delete(id); } }
   }
   if (view === 'follow') {
     const a = [...actors.values()].filter(x => x.finished == null).at(-1) || [...actors.values()].at(-1);

@@ -1,3 +1,5 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -75,7 +77,7 @@ test('fetch_coffee: picking up requires being close', () => {
 });
 
 test('HTTP API: session lifecycle, SSE, validation', async () => {
-  const { server } = createServer();
+  const { server } = createServer({ dataDir: mkdtempSync(join(tmpdir(), 'arena-data-')) });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, b) => fetch(base + p, { method: 'POST', body: JSON.stringify(b) }).then(async r => [r.status, await r.json()]);
@@ -174,4 +176,49 @@ test('seat HTTP events include placement and continuous seating path samples', a
   } finally {
     ac.abort(); server.close(); server.closeAllConnections?.();
   }
+});
+
+test('retask interrupts fitted seating and can restart it without stale state', () => {
+  const s = new Session(world, { id: 'retask-seat', task: 'sit:armchair_blue', preview: true });
+  s.step([0, 0, 0, 1]);
+  assert.equal(s.seating, true);
+  s.retask('wave');
+  assert.equal(s.seating, false);
+  assert.equal(s.seatTime, -1);
+  assert.equal(s.seatFrom, null);
+  assert.equal(s.spec.placement, undefined);
+  const wave = s.step([0, 0, 0, 0]);
+  assert.equal(wave.info.pose, 'wave');
+  assert.equal(wave.info.pelvis_height, null);
+  s.retask('sit:armchair_blue');
+  s.x = s.spec.target.x; s.z = s.spec.target.z;
+  const restart = s.step([0, 0, 0, 1]);
+  assert.equal(restart.info.seating, true);
+  assert.ok(restart.info.seat_time < 0.2);
+});
+
+test('retasking releases a chair claim and preview only supports the fitted armchair', async () => {
+  const { server } = createServer();
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = async (path, body) => { const r = await fetch(base + path, { method: 'POST', body: JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
+  try {
+    const first = await post('/sim/sessions', { task: 'sit:armchair_blue', preview: true });
+    assert.equal(first.status, 200);
+    assert.equal((await post('/sim/sessions', { task: 'sit:armchair_blue', preview: true })).status, 400, 'occupied chair does not silently preview another chair');
+    assert.equal((await post(`/sim/sessions/${first.data.id}/task`, { task: 'idle' })).status, 200);
+    const next = await post('/sim/sessions', { task: 'sit:armchair_blue', preview: true });
+    assert.equal(next.status, 200, 'idle task released chair');
+    assert.equal((await post('/sim/sessions', { task: 'sit:chair_navy_left', preview: true })).status, 400);
+  } finally { server.close(); server.closeAllConnections?.(); }
+});
+
+test('generic sit choosing the blue armchair exposes the calibrated interaction contract', () => {
+  const s = new Session(world, { id: 'generic-blue', task: 'sit:armchair_blue', preview: true });
+  s.retask('sit');
+  assert.equal(s.spec.target.id, 'armchair_blue');
+  assert.equal(s.spec.fitted, true);
+  assert.match(s.spec.description, /interact > 0.5/);
+  assert.equal(s.step([0, 0, 0, 0]).done, false);
+  assert.equal(s.step([0, 0, 0, 1]).info.seating, true);
 });

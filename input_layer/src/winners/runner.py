@@ -38,28 +38,41 @@ def run_episode(
     seed: int,
     decision_interval: int = 1,
     max_steps: int = 500,
+    *,
+    resume: bool = False,
+    close: bool = True,
+    interrupt: Callable[[], str | None] | None = None,
 ) -> Episode:
     """Roll out `policy` on `env`.
+
+    Live mode (voice orders): `resume=True` continues the env's current session instead of
+    resetting it, `close=False` keeps the session (and robot) alive afterwards, and `interrupt`
+    is polled before every tick; if it returns a task the episode ends early (meta["interrupted"])
+    with the new task in meta["next_task"] for the caller to apply with `env.retask`.
 
     The policy is queried every `decision_interval` ticks (LLMs are slow compared to
     control rate); in between, its last safe action is held. Every tick is recorded
     so the training data has full-rate physics, with `decided` marking real queries.
     """
     reset_kw = {"model": policy.name} if _accepts(env.reset, "model") else {}
-    step_ok = _accepts(env.step, "label", "model")
-    obs = env.reset(seed=seed, **reset_kw)
+    step_ok = _accepts(env.step, "label", "model", "detail")
+    obs = env.current_observation() if resume else env.reset(seed=seed, **reset_kw)
+    interrupted: str | None = None
     # after reset: envs that discover their specs from a server only know them now
     safety = SafetyFilter(env.action_spec)
     steps: list[Step] = []
     held: list[float] = env.action_spec.hold()
     held_raw: list[float] | None = None
     held_label: str | None = None
+    held_detail: dict[str, Any] | None = None
     latency = cost = 0.0
     flags: list[str] = []
     info: dict = {}
     total_reward = 0.0
 
     for t in range(max_steps):
+        if interrupt is not None and (interrupted := interrupt()):
+            break
         decided = t % decision_interval == 0
         if decided:
             started = time.perf_counter()
@@ -72,6 +85,7 @@ def run_episode(
             cost = float(action.meta.get("cost_usd", 0.0))
             held_raw = action.values or None
             held_label = action.label
+            held_detail = action.meta.get("detail") if decided else None
             held, flags = safety.sanitize(held_raw)
             if "error" in action.meta:
                 flags = [*flags, "model_error"]
@@ -86,6 +100,9 @@ def run_episode(
             step_kw["label"] = held_label
         if "model" in step_ok:
             step_kw["model"] = policy.name
+        if "detail" in step_ok and decided:
+            # What the model said (plan, odds) plus what the decision cost: it ends up in the labeled data.
+            step_kw["detail"] = {**(held_detail or {}), "latency_s": round(latency, 4), "cost_usd": round(cost, 6)}
         obs, reward, done, info = env.step(held, **step_kw)
         total_reward += reward
         steps.append(
@@ -107,9 +124,9 @@ def run_episode(
         if done:
             break
 
-    close = getattr(env, "close", None)  # envs holding server-side sessions release them
-    if callable(close):
-        close()
+    closer = getattr(env, "close", None)  # envs holding server-side sessions release them
+    if close and callable(closer):
+        closer()
 
     return Episode(
         episode_id=uuid.uuid4().hex[:12],
@@ -119,5 +136,5 @@ def run_episode(
         steps=steps,
         success=bool(info.get("success", False)),
         total_reward=total_reward,
-        meta={"decision_interval": decision_interval},
+        meta={"decision_interval": decision_interval, **({"interrupted": True, "next_task": interrupted} if interrupted else {})},
     )
