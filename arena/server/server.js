@@ -142,11 +142,11 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         }
         const body = await readJson(req);
         const id = `s${nextId++}`;
-        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120, claimed: claimedSeats(null) });
+        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120, claimed: claimedSeats(null), instruction: typeof body.instruction === 'string' && body.instruction.trim() ? body.instruction.trim().slice(0, 400) : null });
         sessions.set(id, s);
         rec.start(s);
-        broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
-        return send(res, 200, { id, task_description: s.spec.description, action_spec: ACTION_SPEC, observation_spec: OBSERVATION_SPEC, observation: s.observation() });
+        broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.taskText, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
+        return send(res, 200, { id, task_description: s.taskText, action_spec: ACTION_SPEC, observation_spec: OBSERVATION_SPEC, observation: s.observation() });
       }
       const m = /^\/sim\/sessions\/([^/]+)(?:\/(step|task))?$/.exec(path);
       if (m) {
@@ -162,10 +162,10 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         if (req.method === 'POST' && m[2] === 'task') {
           const body = await readJson(req);
           rec.finish(s, 'interrupted');
-          s.retask(String(body.task ?? ''), claimedSeats(s));
+          s.retask(String(body.task ?? ''), claimedSeats(s), typeof body.instruction === 'string' && body.instruction.trim() ? body.instruction.trim().slice(0, 400) : null);
           rec.start(s);
-          broadcast({ type: 'task_changed', session: s.id, model: s.model, task: s.task, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
-          return send(res, 200, { id: s.id, task: s.task, task_description: s.spec.description, observation: s.observation() });
+          broadcast({ type: 'task_changed', session: s.id, model: s.model, task: s.task, task_description: s.taskText, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
+          return send(res, 200, { id: s.id, task: s.task, task_description: s.taskText, observation: s.observation() });
         }
         if (req.method === 'POST' && m[2] === 'step') {
           const body = await readJson(req);

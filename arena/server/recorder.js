@@ -13,7 +13,7 @@ export class Recorder {
   }
 
   start(s) {
-    this.open.set(s.id, { model: s.model, task: s.task, task_description: s.spec.description, seed: s.seed, started_at: new Date().toISOString(), steps: [] });
+    this.open.set(s.id, { model: s.model, task: s.task, task_description: s.taskText, seed: s.seed, started_at: new Date().toISOString(), steps: [] });
   }
 
   step(s, row) {

@@ -178,6 +178,23 @@ export class World {
   }
 }
 
+/** The shared scenario every agent gets: two stages, no object ids, the agent has to read the room. */
+export const TALK_INSTRUCTION = "You just arrived for the talk. Grab yourself a coffee, then find a free seat in the audience and sit down.";
+export const SCENARIOS = { talk: ['fetch_coffee', 'sit'] };
+
+/** What an object looks like to the robots. They never see ids, only these plain words. */
+const LABELS = {
+  chair_navy_left: 'navy wooden chair on the stage', chair_navy_middle: 'navy wooden chair on the stage', armchair_blue: 'big blue armchair on the stage',
+  plant_tall: 'tall leafy plant', plant_medium: 'potted plant', blue_column: 'blue column', table: 'long white folding table',
+  coffee_cup: 'coffee cup', speaker_stand: 'speaker on a stand', tripod: 'camera tripod', lectern: 'white lectern',
+};
+export function labelOf(o) {
+  if (LABELS[o.id]) return LABELS[o.id];
+  if (/^fold_chair/.test(o.id)) return 'grey folding chair in the audience';
+  if (/^table_chair/.test(o.id)) return 'white folding chair by the table';
+  return o.name;
+}
+
 export const TASK_HELP = 'goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle';
 
 /** `ctx.claimed`: seat ids other robots already sit in or walk to. `ctx.from`: where the robot is now. */
@@ -222,18 +239,22 @@ export function resolveTask(world, task, ctx = {}) {
 }
 
 export class Session {
-  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120, claimed } = {}) {
+  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120, claimed, instruction = null } = {}) {
     this.world = world;
     this.id = id;
     this.seed = seed;
     this.model = model;
     this.maxSteps = maxSteps;
     this.task = task;
+    this.plan = SCENARIOS[task] ?? [task];
+    this.stage = 0;
+    // With an instruction the robot is "blind": it gets the words and a view of the room, not the target.
+    this.instruction = instruction ?? (SCENARIOS[task] ? TALK_INSTRUCTION : null);
     const rand = mulberry32(seed * 7919 + 13);
-    const first = resolveTask(world, task, { claimed });
+    const first = resolveTask(world, this.plan[0], { claimed });
     const start = world.startPose(rand, first.target);
     // Tasks without a fixed target (sit on any chair, emotes, idle) depend on where the robot starts.
-    this.spec = ['sit', 'emote', 'idle'].includes(first.kind) ? resolveTask(world, task, { claimed, from: start }) : first;
+    this.spec = ['sit', 'emote', 'idle'].includes(first.kind) ? resolveTask(world, this.plan[0], { claimed, from: start }) : first;
     this.seated = false;
     this.x = start.x;
     this.z = start.z;
@@ -254,8 +275,11 @@ export class Session {
   blockedAt(x, z) { return this.world.blocked(x, z) || this.world.peerBlocked(x, z, this); }
 
   /** Give the robot a new task where it stands (voice commands). `claimed`: chairs other robots hold. */
-  retask(task, claimed) {
-    this.spec = resolveTask(this.world, task, { claimed, from: { x: this.x, z: this.z } });
+  retask(task, claimed, instruction = null) {
+    this.plan = SCENARIOS[task] ?? [task];
+    this.stage = 0;
+    this.instruction = instruction ?? (SCENARIOS[task] ? TALK_INSTRUCTION : null);
+    this.spec = resolveTask(this.world, this.plan[0], { claimed, from: { x: this.x, z: this.z } });
     this.task = task;
     this.t = 0;
     this.done = false;
@@ -268,6 +292,9 @@ export class Session {
     this.vz = 0;
     this.lastDist = this.goalDist();
   }
+
+  /** What the agent is told the task is. */
+  get taskText() { return this.instruction ?? this.spec.description; }
 
   goalDist() { return Math.hypot(this.spec.target.x - this.x, this.spec.target.z - this.z); }
 
@@ -292,6 +319,7 @@ export class Session {
   }
 
   describe(g = this.goalLocal()) {
+    if (this.instruction) return this.describeScene();
     const lines = [];
     lines.push(`You are at x=${this.x.toFixed(2)}, z=${this.z.toFixed(2)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees.`);
     if (this.spec.kind === 'idle' || this.spec.kind === 'emote') lines.push(this.spec.description);
@@ -306,6 +334,37 @@ export class Session {
     if (near.length) lines.push(`Nearby obstacles: ${near.join('; ')}.`);
     lines.push(`Room: x from ${this.world.bounds.minX} to ${this.world.bounds.maxX}, z from ${this.world.bounds.minZ} to ${this.world.bounds.maxZ}.`);
     return lines.join(' ');
+  }
+
+  /** The agent's view when it only has words: an instruction, its own status and what it can see. No target. */
+  describeScene() {
+    const lines = [`Your instruction: "${this.instruction}"`];
+    if (this.plan.length > 1) lines.push(`Progress: part ${this.stage + 1} of ${this.plan.length}${this.stage ? ' (the first part is done)' : ''}.`);
+    lines.push(`You are at x=${this.x.toFixed(1)}, z=${this.z.toFixed(1)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees. ${this.holding ? 'You are holding a coffee cup.' : 'Your hands are empty.'}${this.seated ? ' You are sitting down.' : ''}`);
+    if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
+    const taken = new Set([...this.world.peers()].filter(p => p !== this && p.seated).map(p => p.spec.target.id));
+    const groups = new Map();
+    for (const o of this.world.objects) {
+      if (o.kind === 'platform' || (taken.has(o.id) && o.kind !== 'chair')) continue;
+      const l = this.goalLocal(o), deg = Math.atan2(l.right, l.forward) * 180 / Math.PI;
+      const label = labelOf(o) + (taken.has(o.id) ? ' (someone is sitting there)' : '');
+      const d = Math.hypot(o.x - this.x, o.z - this.z);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push({ d, deg });
+    }
+    const where = ({ d, deg }) => {
+      const a = Math.abs(deg), side = deg >= 0 ? 'right' : 'left';
+      const dir = a < 10 ? 'straight ahead' : a > 150 ? 'directly behind you' : `${a.toFixed(0)}° to your ${side}${a > 100 ? ' (behind you)' : ''}`;
+      return `${d.toFixed(1)} m away, ${dir}`;
+    };
+    const rows = [...groups.entries()].map(([label, list]) => ({ label, list: list.sort((x, y) => x.d - y.d) })).sort((x, y) => x.list[0].d - y.list[0].d);
+    lines.push('You can see:');
+    for (const { label, list } of rows) {
+      const shown = list.slice(0, 2).map(where).join('; also ');
+      lines.push(`- ${label}${list.length > 1 ? ` (${list.length} of them)` : ''}: nearest ${shown}`);
+    }
+    lines.push(`The room spans x from ${this.world.bounds.minX} to ${this.world.bounds.maxX} and z from ${this.world.bounds.minZ} to ${this.world.bounds.maxZ}.`);
+    return lines.join('\n');
   }
 
   /** Advance one decision step. Returns the response described in SIM_API.md plus the sampled path. */
@@ -356,8 +415,14 @@ export class Session {
     this.lastDist = dist;
     let pose = null, poseS = 0;
     if (this.spec.kind === 'goto' && dist <= GOTO_RADIUS) { this.success = true; reason = `reached the ${this.spec.target.name}`; }
-    if (this.spec.kind === 'sit' && dist <= SIT_RADIUS) {
-      const seat = this.spec.target;
+    // Sitting counts on ANY free chair within reach, not only the one the sim would have picked.
+    let seatHit = null;
+    if (this.spec.kind === 'sit') {
+      const taken = new Set([...this.world.peers()].filter(p => p !== this && p.seated).map(p => p.spec.target.id));
+      seatHit = this.world.seats.filter(s => !taken.has(s.id) && Math.hypot(s.x - this.x, s.z - this.z) <= SIT_RADIUS).sort((a, b) => Math.hypot(a.x - this.x, a.z - this.z) - Math.hypot(b.x - this.x, b.z - this.z))[0] ?? null;
+    }
+    if (seatHit) {
+      const seat = this.spec.target = seatHit;
       this.success = true; this.seated = true; reason = `sat down on the ${seat.name}`;
       const off = seatStandOffset(seat);
       this.x = seat.x + Math.sin(seat.heading) * off; this.z = seat.z + Math.cos(seat.heading) * off; this.heading = seat.heading; this.vx = this.vz = 0; this.blend = 0; this.poseOffset = off;
@@ -366,9 +431,19 @@ export class Session {
     if (this.spec.kind === 'emote') { this.success = true; pose = this.spec.emote; poseS = EMOTES[pose]; reason = `played the ${pose} animation`; }
     if (this.seated) pose = 'sit';
     if (this.spec.kind === 'fetch_coffee' && this.holding) this.success = true;
+    let stageDone = null;
+    if (this.success && this.stage < this.plan.length - 1) {   // part of a scenario: move on to the next part
+      stageDone = this.plan[this.stage];
+      this.stage += 1;
+      this.success = false;
+      this.spec = resolveTask(this.world, this.plan[this.stage], { claimed: new Set([...this.world.peers()].filter(p => p !== this && p.spec.kind === 'sit').map(p => p.spec.target.id)), from: { x: this.x, z: this.z } });
+      this.lastDist = this.goalDist();
+      reward += 0.5;
+    }
     if (this.success) reward += 1;
     this.done = this.success || this.t >= this.maxSteps;
     if (this.done && !this.success) reason = reason || 'ran out of steps';
+    if (stageDone === 'fetch_coffee') reason = 'picked up the coffee, now looking for a seat';
     this.reason = reason;
     return {
       observation: this.observation(),
@@ -377,7 +452,8 @@ export class Session {
       info: {
         success: this.success, reason, position: [round(this.x), round(this.z)], heading: round(this.heading),
         y: round(this.world.groundHeight(this.x, this.z)), joints: this.pose(), collided: this.collided, holding: this.holding,
-        distance: round(dist), moved: round(moved), pose, pose_s: poseS, pose_offset: this.seated ? this.poseOffset : null, seat: this.seated ? this.spec.target.id : null,
+        stage: this.stage, stages: this.plan.length, stage_done: stageDone,
+        distance: round(this.goalDist()), moved: round(moved), pose, pose_s: poseS, pose_offset: this.seated ? this.poseOffset : null, seat: this.seated ? this.spec.target.id : null,
       },
       path,
     };
