@@ -1,0 +1,123 @@
+// Headless sim server (contract: robot/docs/SIM_API.md). Loopback only.
+import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ACTION_SPEC, OBSERVATION_SPEC, Session, World } from './core.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const MAX_BODY = 64 * 1024;
+const MAX_SESSIONS = 64;
+const HISTORY = 2000;
+
+export function createServer({ manifestPath = join(here, '..', 'public', 'room', 'manifest.json') } = {}) {
+  const world = new World(JSON.parse(readFileSync(manifestPath, 'utf8')));
+  const sessions = new Map();
+  const clients = new Set();
+  const history = [];
+  let nextId = 1;
+
+  const broadcast = event => {
+    event.ts = Date.now();
+    history.push(event);
+    if (history.length > HISTORY) history.shift();
+    const data = `data: ${JSON.stringify(event)}\n\n`;
+    for (const res of clients) res.write(data);
+  };
+
+  const send = (res, status, body) => {
+    const text = JSON.stringify(body);
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(text);
+  };
+
+  const readJson = req => new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > MAX_BODY) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}); } catch { reject(Object.assign(new Error('invalid JSON'), { status: 400 })); } });
+    req.on('error', reject);
+  });
+
+  const sessionSnapshot = s => ({ id: s.id, task: s.task, model: s.model, seed: s.seed, t: s.t, done: s.done, success: s.success, observation: s.observation() });
+
+  const handler = async (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return send(res, 403, { error: 'foreign origin' });
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const path = url.pathname;
+    try {
+      if (req.method === 'GET' && path === '/sim/manifest') return send(res, 200, world.manifest);
+      if (req.method === 'GET' && path === '/sim/events') {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+        res.write(': connected\n\n');
+        const replay = url.searchParams.get('replay') !== '0';
+        if (replay) for (const e of history) res.write(`data: ${JSON.stringify(e)}\n\n`);
+        clients.add(res);
+        req.on('close', () => clients.delete(res));
+        return;
+      }
+      if (req.method === 'POST' && path === '/sim/training') {
+        const body = await readJson(req);
+        broadcast({ ...body, type: 'training' });
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && path === '/sim/reset') {
+        sessions.clear(); history.length = 0;
+        broadcast({ type: 'reset' });
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && path === '/sim/sessions') return send(res, 200, { sessions: [...sessions.values()].map(sessionSnapshot) });
+      if (req.method === 'POST' && path === '/sim/sessions') {
+        if (sessions.size >= MAX_SESSIONS) {
+          for (const [k, s] of sessions) if (s.done) sessions.delete(k);
+          if (sessions.size >= MAX_SESSIONS) return send(res, 429, { error: 'too many sessions' });
+        }
+        const body = await readJson(req);
+        const id = `s${nextId++}`;
+        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120 });
+        sessions.set(id, s);
+        broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.spec.description, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
+        return send(res, 200, { id, task_description: s.spec.description, action_spec: ACTION_SPEC, observation_spec: OBSERVATION_SPEC, observation: s.observation() });
+      }
+      const m = /^\/sim\/sessions\/([^/]+)(?:\/(step))?$/.exec(path);
+      if (m) {
+        const s = sessions.get(m[1]);
+        if (!s) return send(res, 404, { error: 'unknown session' });
+        if (req.method === 'GET' && !m[2]) return send(res, 200, sessionSnapshot(s));
+        if (req.method === 'DELETE' && !m[2]) {
+          sessions.delete(m[1]);
+          broadcast({ type: 'session_ended', session: s.id, model: s.model, task: s.task, success: s.success, steps: s.t, reason: s.reason });
+          return send(res, 200, { ok: true });
+        }
+        if (req.method === 'POST' && m[2] === 'step') {
+          const body = await readJson(req);
+          if (s.done) return send(res, 409, { error: 'session finished' });
+          if (!Array.isArray(body.action)) return send(res, 400, { error: 'action must be an array' });
+          const model = body.model ? String(body.model).slice(0, 64) : s.model;
+          const label = body.label == null ? null : String(body.label).slice(0, 200);
+          const r = s.step(body.action);
+          broadcast({
+            type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label,
+            position: r.info.position, heading: r.info.heading, y: r.info.y, path: r.path, joints: r.info.joints,
+            holding: r.info.holding, collided: r.info.collided, distance: r.info.distance, reward: r.reward, done: r.done,
+            success: r.info.success, reason: r.info.reason,
+          });
+          if (r.done) broadcast({ type: 'session_finished', session: s.id, model, task: s.task, success: r.info.success, steps: s.t, reason: r.info.reason });
+          const { path, ...resp } = r;
+          return send(res, 200, resp);
+        }
+      }
+      return send(res, 404, { error: 'not found' });
+    } catch (e) {
+      return send(res, e.status ?? 400, { error: String(e.message ?? e) });
+    }
+  };
+
+  return { server: http.createServer(handler), world, sessions };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const port = Number(process.env.SIM_PORT ?? 8818);
+  const { server } = createServer();
+  server.listen(port, '127.0.0.1', () => console.log(`sim server on http://127.0.0.1:${port}`));
+}

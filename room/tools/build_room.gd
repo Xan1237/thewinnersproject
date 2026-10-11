@@ -12,6 +12,7 @@ const WT := 0.3  # wall thickness
 
 var scene_root: Node3D
 var mats := {}
+var manifest: Array = []  # exported to room/export/room_manifest.json
 
 
 func _init() -> void:
@@ -31,8 +32,25 @@ func _init() -> void:
 		quit(1)
 		return
 	err = ResourceSaver.save(ps, "res://scenes/room.tscn")
+	_write_manifest()
 	print("saved room.tscn err=", err)
 	quit(0 if err == OK else 1)
+
+
+# ---------------------------------------------------------------- manifest
+# One entry per object the robot can see or bump into. x,z = centre, sx,sz = footprint.
+func reg(id: String, kind: String, pos: Vector3, size: Vector3, solid := true, rot_y := 0.0) -> void:
+	manifest.append({"id": id, "name": id.replace("_", " "), "kind": kind, "x": snappedf(pos.x, 0.001), "z": snappedf(pos.z, 0.001),
+		"sx": snappedf(size.x, 0.001), "sz": snappedf(size.z, 0.001), "height": snappedf(size.y, 0.001), "solid": solid})
+
+
+func _write_manifest() -> void:
+	DirAccess.make_dir_recursive_absolute("res://export")
+	var data := {"bounds": {"minX": -RX, "maxX": RX, "minZ": -RZ, "maxZ": RZ}, "height": H, "objects": manifest}
+	var f := FileAccess.open("res://export/room_manifest.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify(data, "  "))
+	f.close()
+	print("manifest objects=", manifest.size())
 
 
 # ---------------------------------------------------------------- helpers
@@ -55,7 +73,7 @@ func mat(color: Color, tex: String = "", uv: Vector3 = Vector3.ONE, emit: float 
 	return m
 
 
-# World-triplanar PBR material: tile_m = real-world size of one texture tile.
+# PBR material: tile_m = real-world size of one texture tile (box UVs are generated in tile units).
 func pbr(set_name: String, tile_m: float, tint := Color(1, 1, 1), normal_scale := 1.0) -> StandardMaterial3D:
 	var key := "pbr|%s|%s|%s" % [set_name, tile_m, tint]
 	if mats.has(key):
@@ -69,9 +87,7 @@ func pbr(set_name: String, tile_m: float, tint := Color(1, 1, 1), normal_scale :
 	m.roughness = 1.0
 	m.roughness_texture = load("res://assets/tex/%s_rough.png" % set_name)
 	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
-	m.uv1_triplanar = true
-	m.uv1_world_triplanar = true
-	m.uv1_scale = Vector3.ONE / tile_m
+	m.set_meta("tile", tile_m)  # box meshes get UVs in tile units (exportable to glTF)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mats[key] = m
 	return m
@@ -106,13 +122,47 @@ func group(name: String, parent: Node = null, pos := Vector3.ZERO, rot_y := 0.0)
 	return g
 
 
+
+# Box mesh with UVs in real-world tile units when the material carries a "tile" meta.
+func box_mesh(size: Vector3, m: Material) -> Mesh:
+	if m == null or not m.has_meta("tile"):
+		var bm := BoxMesh.new()
+		bm.size = size
+		return bm
+	var t: float = m.get_meta("tile")
+	var h := size * 0.5
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# [normal, u-axis, v-axis] per face, with u x v = normal (clockwise winding via the index order below)
+	var faces := [
+		[Vector3(0, 1, 0), Vector3(1, 0, 0), Vector3(0, 0, -1)],
+		[Vector3(0, -1, 0), Vector3(1, 0, 0), Vector3(0, 0, 1)],
+		[Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0)],
+		[Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0)],
+		[Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)],
+		[Vector3(0, 0, -1), Vector3(-1, 0, 0), Vector3(0, 1, 0)],
+	]
+	for f in faces:
+		var n: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var v: Vector3 = f[2]
+		var ue: float = absf(u.dot(size))
+		var ve: float = absf(v.dot(size))
+		var c := n * (absf(n.dot(size)) * 0.5)
+		var corners := [c - u * ue * 0.5 - v * ve * 0.5, c + u * ue * 0.5 - v * ve * 0.5, c + u * ue * 0.5 + v * ve * 0.5, c - u * ue * 0.5 + v * ve * 0.5]
+		var uvs := [Vector2(0, ve / t), Vector2(ue / t, ve / t), Vector2(ue / t, 0), Vector2(0, 0)]
+		for idx in [0, 2, 1, 0, 3, 2]:
+			st.set_normal(n)
+			st.set_uv(uvs[idx])
+			st.add_vertex(corners[idx])
+	st.generate_tangents()
+	return st.commit()
+
 # Visual-only box (no collision).
 func vbox(name: String, parent: Node, pos: Vector3, size: Vector3, m: Material, rot := Vector3.ZERO) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = name
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
+	mi.mesh = box_mesh(size, m)
 	mi.material_override = m
 	mi.position = pos
 	mi.rotation_degrees = rot
@@ -129,9 +179,7 @@ func sbox(name: String, parent: Node, pos: Vector3, size: Vector3, m: Material, 
 	own(sb, parent)
 	var mi := MeshInstance3D.new()
 	mi.name = "Mesh"
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
+	mi.mesh = box_mesh(size, m)
 	mi.material_override = m
 	own(mi, sb)
 	var cs := CollisionShape3D.new()
@@ -285,6 +333,7 @@ func _build_stage() -> void:
 	# Modular deck (skirt on the audience side = +Z, so the model is turned 180 deg)
 	inst(model("stage_deck"), st, Vector3.ZERO, 180.0, "Deck")
 	cbox("DeckCollision", st, Vector3(0, 0.175, 0), Vector3(6.4, 0.35, 3.8))
+	reg("stage", "platform", STAGE_POS, Vector3(6.4, 0.35, 3.8), false)
 	# Rug (real photo of the rug, cleaned) lying on the plywood top
 	var rug := StandardMaterial3D.new()
 	rug.albedo_texture = load("res://assets/tex/rug_albedo.jpg")
@@ -299,15 +348,20 @@ func _build_stage() -> void:
 	var y := 0.35
 	inst(model("chair_navy"), st, Vector3(-1.9, y, 0.1), 205.0, "ChairLeft")
 	cbox("ChairLeftCol", st, Vector3(-1.9, y + 0.43, 0.1), Vector3(0.55, 0.85, 0.55))
+	reg("chair_navy_left", "chair", STAGE_POS + Vector3(-1.9, 0, 0.1), Vector3(0.55, 0.85, 0.55))
 	inst(model("chair_navy"), st, Vector3(-0.5, y, -0.1), 180.0, "ChairMiddle")
 	cbox("ChairMiddleCol", st, Vector3(-0.5, y + 0.43, -0.1), Vector3(0.55, 0.85, 0.55))
+	reg("chair_navy_middle", "chair", STAGE_POS + Vector3(-0.5, 0, -0.1), Vector3(0.55, 0.85, 0.55))
 	inst(model("armchair_blue"), st, Vector3(1.1, y, 0.0), 155.0, "Armchair")
 	cbox("ArmchairCol", st, Vector3(1.1, y + 0.55, 0.0), Vector3(0.75, 1.1, 0.7))
+	reg("armchair_blue", "chair", STAGE_POS + Vector3(1.1, 0, 0.0), Vector3(0.75, 1.1, 0.7))
 	# Plants flanking the stage
 	inst(model("plant_tall"), scene_root, Vector3(-3.7, 0, -4.9), 20.0, "PlantTall")
 	cbox("PlantTallCol", scene_root, Vector3(-3.7, 1.0, -4.9), Vector3(0.6, 2.0, 0.6))
+	reg("plant_tall", "plant", Vector3(-3.7, 0, -4.9), Vector3(0.6, 2.0, 0.6))
 	inst(model("plant_medium"), scene_root, Vector3(4.6, 0, -3.6), 70.0, "PlantMedium")
 	cbox("PlantMediumCol", scene_root, Vector3(4.6, 0.85, -3.6), Vector3(0.6, 1.7, 0.6))
+	reg("plant_medium", "plant", Vector3(4.6, 0, -3.6), Vector3(0.6, 1.7, 0.6))
 
 
 # ---------------------------------------------------------------- north wall details
@@ -339,6 +393,7 @@ func _build_screen_wall_details() -> void:
 	# Orange accent panel + pale blue column
 	vbox("AccentPanel", g, Vector3(-2.7, 1.9, -RZ + 0.03), Vector3(1.0, 3.8, 0.05), mat(Color(0.72, 0.25, 0.14), "", Vector3.ONE, 0.0, 0.8))
 	sbox("BlueColumn", g, Vector3(3.85, H * 0.5, -RZ + 0.3), Vector3(0.45, H, 0.6), mat(Color(0.72, 0.85, 0.9), "", Vector3.ONE, 0.0, 0.7))
+	reg("blue_column", "column", Vector3(3.85, 0, -RZ + 0.3), Vector3(0.45, H, 0.6))
 
 
 # ---------------------------------------------------------------- ceiling
@@ -367,6 +422,7 @@ func _build_ceiling() -> void:
 # ---------------------------------------------------------------- audience
 func prop(nm: String, model_name: String, parent: Node, pos: Vector3, rot_y: float, col_size: Vector3) -> void:
 	inst(model(model_name), parent, pos, rot_y, nm)
+	reg(nm.to_snake_case(), model_name.split("_")[0], pos, col_size)
 	cbox(nm + "Col", parent, pos + Vector3(0, col_size.y * 0.5, 0), col_size)
 
 
@@ -378,10 +434,11 @@ func _build_audience() -> void:
 			var x := -5.7 + c * 0.7 + (0.0 if r % 2 == 0 else 0.35)
 			var z := 0.4 + r * 1.05
 			prop("FoldChair_%d_%d" % [r, c], "folding_chair_grey", g, Vector3(x, 0, z), 0.0, Vector3(0.5, 0.85, 0.55))
-	# Table with white chairs behind it
+	# Table with white chairs behind it; the coffee cup (added by the web viewer) sits on it
 	prop("Table", "table_folding", g, Vector3(4.6, 0, 1.4), 0.0, Vector3(1.8, 0.74, 0.7))
+	reg("coffee_cup", "item", Vector3(4.3, 0.74, 1.4), Vector3(0.1, 0.1, 0.1), false)
 	for i in range(3):
-		prop("TableChair%d" % i, "folding_chair_white", g, Vector3(4.0 + i * 0.6, 0, 2.2), 0.0, Vector3(0.5, 0.85, 0.55))
+		prop("TableChair%d" % i, "folding_chair_white", g, Vector3(4.0 + i * 0.6, 0, 0.6), 180.0, Vector3(0.5, 0.85, 0.55))
 	# Speaker on stand, camera tripod, lectern
 	prop("SpeakerStand", "speaker_stand", g, Vector3(-1.2, 0, -0.4), 160.0, Vector3(0.6, 1.8, 0.6))
 	prop("Tripod", "tripod_camera", g, Vector3(-3.0, 0, -0.9), 0.0, Vector3(0.6, 1.5, 0.6))

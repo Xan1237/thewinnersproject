@@ -1,0 +1,19 @@
+{
+  "name": "winners-arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm:sim\" \"npm:viewer\"",
+    "sim": "node server/server.js",
+    "viewer": "vite",
+    "build": "vite build",
+    "test": "node --test server/*.test.js",
+    "assets": "node tools/copy-g1.js"
+  },
+  "dependencies": {
+    "concurrently": "^9.2.5",
+    "three": "^0.180.0",
+    "vite": "^7.1.0"
+  }
+}

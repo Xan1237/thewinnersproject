@@ -1,0 +1,136 @@
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const PALETTE = ['#ff5a8a', '#5ac8ff', '#ffd35a', '#8aff7a', '#c08aff', '#ff9a5a', '#5af0d0', '#e0e0e0'];
+const KEY_JOINTS = ['right_shoulder_pitch_joint', 'right_elbow_joint', 'left_shoulder_pitch_joint', 'left_hip_pitch_joint', 'right_hip_pitch_joint', 'left_knee_joint', 'right_knee_joint', 'waist_yaw_joint'];
+
+export class Panel {
+  constructor() {
+    this.colors = new Map();
+    this.models = new Map();   // model -> stats
+    this.sessions = new Map(); // session -> {model, task, steps, distance}
+    this.feedItems = 0;
+    this.training = { epochs: [], evals: [], status: 'Waiting for training to start…', info: {} };
+    document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => this.tab(b.dataset.tab));
+  }
+
+  tab(name) {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('selected', b.dataset.tab === name));
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('selected', t.id === `tab-${name}`));
+    if (name === 'training') { this.drawCharts(); requestAnimationFrame(() => this.drawCharts()); }
+  }
+
+  color(model) {
+    if (!this.colors.has(model)) this.colors.set(model, PALETTE[this.colors.size % PALETTE.length]);
+    return this.colors.get(model);
+  }
+
+  stats(model) {
+    if (!this.models.has(model)) this.models.set(model, { runs: 0, wins: 0, steps: 0, winSteps: 0, now: '' });
+    return this.models.get(model);
+  }
+
+  reset() {
+    this.models.clear(); this.sessions.clear(); $('feed').innerHTML = ''; this.feedItems = 0;
+    this.training = { epochs: [], evals: [], status: 'Waiting for training to start…', info: {} };
+    this.renderBoard(); this.drawCharts();
+  }
+
+  onEvent(ev) {
+    if (ev.type === 'session_started') {
+      this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0, distance: null, max: ev.max_steps });
+      this.stats(ev.model).now = ev.task;
+      this.addRow(ev.model, `<div class="label">Started <b>${esc(ev.task)}</b> · seed ${esc(ev.seed)}</div><div class="act">${esc(ev.task_description || '')}</div>`, '');
+      this.renderBoard();
+    } else if (ev.type === 'step') {
+      const s = this.sessions.get(ev.session) || (this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0 }), this.sessions.get(ev.session));
+      s.steps = ev.t; s.distance = ev.distance;
+      this.addStep(ev);
+      this.renderBoard();
+    } else if (ev.type === 'session_finished') {
+      const st = this.stats(ev.model);
+      st.runs++; st.steps += ev.steps; if (ev.success) { st.wins++; st.winSteps += ev.steps; }
+      st.now = '';
+      this.addRow(ev.model, `<div class="label">${ev.success ? '✔ Success' : '✘ Failed'} after ${ev.steps} steps</div><div class="act">${esc(ev.reason)}</div>`, ev.success ? 'ok' : 'fail');
+      this.sessions.delete(ev.session);
+      this.renderBoard();
+    } else if (ev.type === 'training') {
+      this.onTraining(ev);
+    } else if (ev.type === 'reset') {
+      this.reset();
+    }
+  }
+
+  addStep(ev) {
+    const a = ev.action || [];
+    const act = `fwd ${(a[0] ?? 0).toFixed(2)} · right ${(a[1] ?? 0).toFixed(2)} · turn ${(a[2] ?? 0).toFixed(2)}${(a[3] ?? 0) > 0.5 ? ' · GRAB' : ''}`;
+    const joints = KEY_JOINTS.filter(k => ev.joints && k in ev.joints).map(k => `<span>${esc(k.replace('_joint', ''))}</span><span>${ev.joints[k].toFixed(3)}</span>`).join('');
+    this.addRow(ev.model,
+      `<div class="label">${esc(ev.label || '(no label)')}</div><div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +
+      `<details><summary>motor data</summary><div class="joints">${joints}</div></details>`, '', ev.t);
+  }
+
+  addRow(model, html, cls, t = '') {
+    const feed = $('feed');
+    const row = document.createElement('div');
+    row.className = `row ${cls}`;
+    row.style.setProperty('--c', this.color(model));
+    row.innerHTML = `<div class="head"><span class="chip">${esc(model)}</span><span class="t">${t !== '' ? `step ${t}` : ''}</span></div>${html}`;
+    feed.prepend(row);
+    if (++this.feedItems > 150) { feed.lastChild.remove(); this.feedItems--; }
+  }
+
+  renderBoard() {
+    const tb = document.querySelector('#board tbody');
+    const rows = [...this.models.entries()].sort((a, b) => (b[1].wins / Math.max(b[1].runs, 1)) - (a[1].wins / Math.max(a[1].runs, 1)));
+    tb.innerHTML = rows.map(([m, s]) => {
+      const live = [...this.sessions.values()].find(x => x.model === m);
+      const pct = s.runs ? Math.round(100 * s.wins / s.runs) : 0;
+      return `<tr style="--c:${this.color(m)}"><td><span class="dot"></span>${esc(m)}</td><td>${s.runs}</td><td>${s.runs ? pct + '%' : '–'}<div class="bar"><i style="width:${pct}%"></i></div></td><td>${s.wins ? (s.winSteps / s.wins).toFixed(1) : '–'}</td><td>${live ? esc(live.task) + ' · step ' + live.steps : '–'}</td></tr>`;
+    }).join('');
+    const ok = rows.reduce((n, [, s]) => n + s.wins, 0), all = rows.reduce((n, [, s]) => n + s.runs, 0);
+    $('datastat').innerHTML = `<b>${ok}</b> successful episodes recorded as training data out of <b>${all}</b> runs.`;
+  }
+
+  onTraining(ev) {
+    const t = this.training;
+    if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} episodes, ${ev.samples ?? '?'} samples`; t.info = ev; }
+    else if (ev.phase === 'epoch') { t.epochs.push(ev); t.status = `Training · epoch ${ev.epoch} · loss ${Number(ev.loss).toFixed(4)}`; }
+    else if (ev.phase === 'eval') { t.evals.push(ev); t.status = `Evaluated learned policy: ${(100 * ev.success_rate).toFixed(0)}% success over ${ev.n} episodes`; }
+    else if (ev.phase === 'done') { t.status = `Training finished · ${ev.checkpoint ?? ''}`; t.info = { ...t.info, ...ev }; }
+    $('trainstatus').textContent = t.status;
+    const teachers = [...this.models.entries()].filter(([m]) => !/learned/i.test(m)).map(([m, s]) => `${esc(m)} ${s.runs ? Math.round(100 * s.wins / s.runs) + '%' : '–'}`).join(' · ');
+    $('trainstats').innerHTML = `<b>Policy:</b> small MLP, behaviour cloning on successful runs only<br><b>Cost per decision:</b> ~$0 (runs locally)<br><b>Teachers:</b> ${teachers || '–'}`;
+    this.drawCharts();
+  }
+
+  drawCharts() {
+    const t = this.training;
+    this.line($('losschart'), [{ pts: t.epochs.map(e => [e.epoch, e.loss]), color: '#7cc4ff' }, { pts: t.epochs.filter(e => e.val_loss != null).map(e => [e.epoch, e.val_loss]), color: '#ffd35a' }], { xlabel: 'epoch', log: true });
+    const teacherRates = [...this.models.entries()].filter(([m, s]) => s.runs && !/learned/i.test(m)).map(([, s]) => s.wins / s.runs);
+    const base = teacherRates.length ? Math.max(...teacherRates) : null;
+    this.line($('evalchart'), [{ pts: t.evals.map((e, i) => [i + 1, e.success_rate]), color: '#5ee0a0', dots: true }], { xlabel: 'evaluation', min: 0, max: 1, hline: base == null ? null : { y: base, color: '#8b96a8' } });
+  }
+
+  line(canvas, series, { xlabel = '', log = false, min, max, hline } = {}) {
+    const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, pad = { l: 38, r: 10, t: 10, b: 24 };
+    g.clearRect(0, 0, W, H);
+    const all = series.flatMap(s => s.pts);
+    g.strokeStyle = '#252d3b'; g.fillStyle = '#8b96a8'; g.font = '10px system-ui'; g.lineWidth = 1;
+    if (!all.length) { g.fillText('no data yet', W / 2 - 24, H / 2); return; }
+    const f = v => log ? Math.log10(Math.max(v, 1e-6)) : v;
+    let lo = min ?? Math.min(...all.map(p => f(p[1]))), hi = max ?? Math.max(...all.map(p => f(p[1])));
+    if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
+    const xs = all.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+    const X = x => pad.l + (x - x0) / (x1 - x0) * (W - pad.l - pad.r), Y = v => H - pad.b - (f(v) - lo) / (hi - lo) * (H - pad.t - pad.b);
+    for (let i = 0; i <= 4; i++) { const y = pad.t + i * (H - pad.t - pad.b) / 4; g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W - pad.r, y); g.stroke(); const val = hi - i * (hi - lo) / 4; g.fillText((log ? 10 ** val : val).toFixed(log ? 3 : 2), 2, y + 3); }
+    g.fillText(xlabel, W / 2 - 18, H - 6);
+    if (hline) { g.strokeStyle = hline.color; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(pad.l, Y(hline.y)); g.lineTo(W - pad.r, Y(hline.y)); g.stroke(); g.setLineDash([]); }
+    for (const s of series) {
+      if (!s.pts.length) continue;
+      g.strokeStyle = s.color; g.fillStyle = s.color; g.lineWidth = 2; g.beginPath();
+      s.pts.forEach(([x, y], i) => i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)));
+      g.stroke();
+      if (s.dots) s.pts.forEach(([x, y]) => { g.beginPath(); g.arc(X(x), Y(y), 3.5, 0, 7); g.fill(); });
+    }
+  }
+}

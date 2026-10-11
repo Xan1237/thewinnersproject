@@ -1,0 +1,50 @@
+:root { --bg:#0e1116; --panel:#141922; --line:#252d3b; --ink:#e8ecf3; --mute:#8b96a8; --accent:#7cc4ff; --good:#5ee0a0; --bad:#ff6b7a; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+#app { display: grid; grid-template-columns: 1fr 400px; height: 100vh; }
+#stage { position: relative; min-width: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; }
+.topbar { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; pointer-events: none; background: linear-gradient(#0008, #0000); }
+.brand { font-weight: 650; letter-spacing: .02em; font-size: 15px; }
+.brand span { color: var(--mute); margin: 0 4px; }
+.views { display: flex; gap: 6px; align-items: center; pointer-events: auto; }
+.views button, .tabs button { background: #1b2230cc; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; }
+.views button.selected, .tabs button.selected { background: var(--accent); color: #07121c; border-color: var(--accent); }
+.views label { color: var(--mute); margin-left: 8px; display: flex; gap: 6px; align-items: center; }
+select { background: #1b2230; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+#loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--bg); color: var(--mute); font-size: 15px; }
+#loading[hidden] { display: none; }
+.conn { position: absolute; left: 18px; bottom: 14px; padding: 4px 10px; border-radius: 999px; font-size: 12px; background: #1b2230cc; border: 1px solid var(--line); }
+.conn.on { color: var(--good); }
+.conn.off { color: var(--bad); }
+#panel { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.tabs { display: flex; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; }
+.tab { display: none; padding: 12px; overflow: auto; min-height: 0; flex: 1; }
+.tab.selected { display: block; }
+.hint { color: var(--mute); font-size: 12px; margin-bottom: 10px; }
+#feed { display: flex; flex-direction: column; gap: 6px; }
+.row { border: 1px solid var(--line); border-left: 3px solid var(--c, var(--accent)); border-radius: 8px; padding: 7px 9px; background: #10151d; }
+.row .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.chip { font-weight: 600; color: var(--c, var(--accent)); }
+.t { color: var(--mute); font-variant-numeric: tabular-nums; }
+.label { margin-top: 2px; font-size: 14px; }
+.act { color: var(--mute); font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 3px; }
+details { margin-top: 4px; }
+summary { cursor: pointer; color: var(--mute); font-size: 11.5px; }
+.joints { display: grid; grid-template-columns: 1fr auto; gap: 1px 12px; font: 11px ui-monospace, Menlo, monospace; color: #b9c3d3; margin-top: 4px; }
+.row.ok { border-color: #2c5a45; background: #0f1b17; }
+.row.fail { border-color: #5a2c35; background: #1b0f12; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+th { color: var(--mute); font-weight: 500; font-size: 12px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--c); }
+.bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.bar > i { display: block; height: 100%; background: var(--good); }
+#datastat, #trainstats { margin-top: 14px; color: var(--mute); font-size: 12px; line-height: 1.6; }
+#datastat b, #trainstats b { color: var(--ink); }
+.status { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; background: #10151d; }
+canvas#losschart, canvas#evalchart { width: 100%; background: #10151d; border: 1px solid var(--line); border-radius: 8px; }
+.legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--mute); margin: 4px 0 12px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 3px; margin-right: 6px; vertical-align: middle; background: currentColor; }
+.l1 { color: #7cc4ff; } .l2 { color: #ffd35a; } .l3 { color: #5ee0a0; } .l4 { color: #8b96a8; }

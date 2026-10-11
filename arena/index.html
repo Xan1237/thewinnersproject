@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>The Winners Project · Arena</title>
+</head>
+<body>
+  <div id="app">
+    <main id="stage">
+      <header class="topbar">
+        <div class="brand">The Winners Project <span>/</span> Arena</div>
+        <div class="views">
+          <button data-view="overview" class="selected">Overview</button>
+          <button data-view="stage">Stage</button>
+          <button data-view="follow">Follow</button>
+          <label>Speed
+            <select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
+          </label>
+        </div>
+      </header>
+      <div id="loading">Loading the room and the robot…</div>
+      <div id="connection" class="conn off">sim offline</div>
+    </main>
+    <aside id="panel">
+      <nav class="tabs">
+        <button data-tab="live" class="selected">Live data</button>
+        <button data-tab="arena">Arena</button>
+        <button data-tab="training">Training</button>
+      </nav>
+      <section id="tab-live" class="tab selected">
+        <div class="hint">Every decision a model makes, with its label and the motor data underneath.</div>
+        <div id="feed"></div>
+      </section>
+      <section id="tab-arena" class="tab">
+        <div class="hint">Models compete on the same tasks. Only successful runs become training data.</div>
+        <table id="board"><thead><tr><th>Model</th><th>Runs</th><th>Success</th><th>Avg steps</th><th>Now</th></tr></thead><tbody></tbody></table>
+        <div id="datastat"></div>
+      </section>
+      <section id="tab-training" class="tab">
+        <div class="hint">A small policy learns from the successful runs, so it can do the task without paying per token.</div>
+        <div id="trainstatus" class="status">Waiting for training to start…</div>
+        <canvas id="losschart" width="360" height="170"></canvas>
+        <div class="legend"><span class="l1">train loss</span><span class="l2">val loss</span></div>
+        <canvas id="evalchart" width="360" height="150"></canvas>
+        <div class="legend"><span class="l3">learned policy success rate</span><span class="l4">teacher models</span></div>
+        <div id="trainstats"></div>
+      </section>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
