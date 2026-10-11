@@ -64,3 +64,7 @@ The mic button records, the browser converts to 16 kHz WAV, and the sim server c
 ## Labeled data
 
 Every episode is written to `arena/data/<model>/<NNNN>-<task>-<result>.json` (git-ignored; `ARENA_DATA_DIR` overrides): per step the state, the text the model saw, its action, label, plan, Jev odds, latency and cost. The "Labeled data" button in the viewer lists the folders and downloads one episode, one model as `.jsonl`, or everything as one `.json`. The trained policy's weights are saved next to it as `model.json`.
+
+## Fitted armchair sitting demo
+
+Click **Sit in armchair** to watch G1 sit in the existing blue armchair on the room stage. This uses local `sit:armchair_blue` and the geometry-fitted `robot/src/sitting-motion.js` animation, with no Modal access. An LLM navigates to the free front approach, interacts once, and sends zero-action steps until `info.seated` is true. Other chairs and emotes keep the existing Kimodo clips; `goto:armchair_blue` remains navigation only. See [SIM_API.md](../robot/docs/SIM_API.md). Repeating the preview replaces its earlier demo session to release the chair.

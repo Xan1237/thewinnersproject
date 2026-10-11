@@ -16,7 +16,9 @@ function drive(s, maxTicks = 80) {
   for (let i = 0; i < maxTicks && !s.done; i++) {
     const g = s.goalLocal();
     const ang = Math.atan2(-g.right, g.forward);
-    s.step([Math.abs(ang) < 0.6 ? 1 : 0, 0, Math.max(-1, Math.min(1, ang * 1.5)), 0]);
+    if (s.seating) s.step([0, 0, 0, 0]);
+    else if (s.spec.fitted && s.goalDist() <= s.spec.radius) s.step([0, 0, 0, 1]);
+    else s.step([Math.abs(ang) < 0.6 ? 1 : 0, 0, Math.max(-1, Math.min(1, ang * 1.5)), 0]);
   }
 }
 

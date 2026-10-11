@@ -21,3 +21,12 @@
 ## Visual direction
 
 One large 3D stage, cool blue-gray studio floor, warm espresso counter, white ceramic mug, and quiet navy UI. Palette: floor #b6c6ce, deep ink #172f3b, steel #738a96, porcelain #f1f1eb, coffee #462c1b. Display uses a restrained Georgia heading, body system sans, and monospace only for playback time. The signature is the robot physically wrapping its hand around the cup; controls stay subordinate to the scene.
+
+## Sitting addition
+
+- [x] Audit the existing armchair geometry and fit G1 pelvis/leg support to its .45m cushion.
+- [x] Share one 3.4-second clip between the robot viewer and room arena.
+- [x] Add sit/stand HTTP commands, explicit arena sit task, and preview buttons.
+- [x] Verify planted feet, held seated pose, standing recovery, stop/recovery and existing tasks in tests and the live browser.
+
+Details and limits: [SITTING.md](SITTING.md).

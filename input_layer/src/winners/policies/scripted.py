@@ -39,7 +39,8 @@ class GoalSeekPolicy:
     """Scripted teacher for the G1 sim. Reads the robot-frame goal from the state vector
     `[x, z, heading, goal_forward, goal_right, goal_dist, holding, steps_left_frac]`
     and outputs `[forward, right, turn, interact]`: steer toward the goal, slow down while
-    misaligned, and press `interact` once within `interact_dist` (for fetch tasks).
+    misaligned, and press `interact` near a pickup or fitted chair approach. Waits
+    while the seating animation runs; the chair trigger is capped at 0.65 m.
 
     Assumes positive `turn` increases the heading, i.e. turns left (counter-clockwise from
     above), so a goal on the right needs a negative turn.
@@ -63,6 +64,11 @@ class GoalSeekPolicy:
         self, obs: Observation, task: str, action_spec: ActionSpec, history: list[Step]
     ) -> Action:
         _x, _z, _heading, fwd, right, dist, _holding, _frac = obs.state[:8]
+        sitting = task.lower().startswith("sit:") or "set interact > 0.5 to sit" in task.lower()
+        if sitting and "Sitting animation in progress" in obs.text:
+            return Action(values=[0.0, 0.0, 0.0, 0.0], label="wait until seated")
+        if sitting and dist <= min(self.interact_dist, 0.65):
+            return Action(values=[0.0, 0.0, 0.0, 1.0], label="sit in the chair")
         if _is_pickup(task) and dist <= self.interact_dist:
             return Action(values=[0.0, 0.0, 0.0, 1.0], label="grab the coffee")
         angle = math.atan2(right, fwd)  # 0 = dead ahead, +pi/2 = goal on the right

@@ -34,14 +34,35 @@ const VIEWS = {
   stage: { pos: [0.4, 2.0, 1.6], target: [0.4, 1.2, -4.0] },
 };
 function setView(name) {
-  document.querySelectorAll('.views button').forEach(b => b.classList.toggle('selected', b.dataset.view === name));
+  document.querySelectorAll('.views button[data-view]').forEach(b => b.classList.toggle('selected', b.dataset.view === name));
   view = name;
   if (VIEWS[name]) { camera.position.set(...VIEWS[name].pos); controls.target.set(...VIEWS[name].target); }
 }
 let view = 'overview';
-document.querySelectorAll('.views button').forEach(b => b.onclick = () => setView(b.dataset.view));
+document.querySelectorAll('.views button[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 let speed = 1;
 $('speed').onchange = e => { speed = Number(e.target.value); };
+$('preview-seat').onclick = async () => {
+  const button = $('preview-seat'); button.disabled = true;
+  const post = async (path, body) => {
+    const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'simulation request failed');
+    return data;
+  };
+  try {
+    setView('stage');
+    const existing = await fetch('/sim/sessions').then(response => response.json());
+    for (const s of existing.sessions || []) if (s.model === 'Seating demo' && s.task === 'sit:armchair_blue') await fetch(`/sim/sessions/${s.id}`, { method: 'DELETE' });
+    const session = await post('/sim/sessions', { task: 'sit:armchair_blue', preview: true, model: 'Seating demo', max_steps: 16 });
+    let result;
+    do {
+      result = await post(`/sim/sessions/${session.id}/step`, { action: [0, 0, 0, result ? 0 : 1], label: result ? 'wait while the robot sits down' : 'sit in the blue armchair' });
+      if (!result.done) await new Promise(resolve => setTimeout(resolve, 500));
+    } while (!result.done);
+  } catch (error) { $('connection').textContent = error.message; }
+  finally { button.disabled = false; }
+};
 
 function resize() {
   const w = stage.clientWidth, h = stage.clientHeight;
@@ -118,6 +139,9 @@ function handle(ev) {
 }
 function applyActor(ev) {
   if (ev.type === 'session_started') {
+    if (ev.model === 'Seating demo' && ev.task === 'sit:armchair_blue') {
+      for (const [id, actor] of actors) if (actor.model === 'Seating demo') { actor.dispose(); actors.delete(id); }
+    }
     const prev = actors.get(ev.session); if (prev) prev.dispose();
     actors.set(ev.session, new Actor(template, scene, ev, { color: panel.color(ev.model), model: ev.model, cupFactory: makeCup }));
   } else if (ev.type === 'step') {

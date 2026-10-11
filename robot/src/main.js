@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RobotController } from './controller.js';
 import { SimulationApi } from './api-client.js';
+import { sampleSit, SIT_DURATION, ARMCHAIR_SEAT } from './sitting-motion.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -11,6 +12,9 @@ const DURATION = 12;
 let time = 0, playing = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 let robot, motion, metadata, grip, joints = [], bodies = new Map(), rest = new Map();
 let controller, api, mode='demo', manualCoffee=false, alignment=null;
+let seatAction=null, seated=false, seatPaused=false, seatTime=0, pelvisRestPosition;
+const chairProfile={chairX:1.1,chairZ:0,chairYaw:Math.PI,groundY:0};
+const clipDuration=()=>mode==='sit'?SIT_DURATION:DURATION;
 const stage = $('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -107,6 +111,7 @@ function armIK(target,weight=1){
 }
 function applyMotion(t){
   for(const [node,q] of rest)node.quaternion.copy(q);
+  if(pelvisRestPosition)bodies.get('pelvis').position.copy(pelvisRestPosition);
   for(const j of allJoints){setJoint(j,0)}
   if(!motion?.mujoco_qpos)return;
   const frames=motion.mujoco_qpos, frame=Math.min(frames.length-1,t/DURATION*(frames.length-1));
@@ -131,6 +136,37 @@ const graspTarget=cupRest.clone().add(new THREE.Vector3(.005,.047,-.005));
 const holdTarget=new THREE.Vector3(-.25,1.055,.25);
 const homeTarget=new THREE.Vector3(-.27,.88,.04);
 const cupLocal=new THREE.Vector3();
+function seatPose(t){
+  const sample=sampleSit(t,chairProfile), previousPosition=worldRoot.position.clone();
+  worldRoot.position.fromArray(sample.position);worldRoot.rotation.set(0,sample.heading,0);
+  const delta=worldRoot.position.clone().sub(previousPosition);camera.position.add(delta);controls.target.add(delta);
+  for(const [node,q] of rest)node.quaternion.copy(q);
+  for(const joint of allJoints)setJoint(joint,sample.joints[joint.name]??0);
+  bodies.get('pelvis').position.copy(pelvisRestPosition);bodies.get('pelvis').position.z=sample.pelvisHeight;
+  robotRoot.updateMatrixWorld(true);cup.position.copy(cupRest);cup.quaternion.identity();
+  seated=sample.seated;seatTime=t;
+  $('seat').textContent=seated||seatPaused||seatAction?.reverse?'Встать':'Сесть в кресло';
+  const labels={balance:'Переносит вес',lower:'Садится в кресло',settle:'Устраивается',seated:'Сидит в кресле'};
+  $('phase').textContent=seatAction?.reverse?'Встаёт':labels[sample.phase];
+  $('clock').textContent=`${t.toFixed(1)} / ${SIT_DURATION.toFixed(1)} с`;
+  if(mode==='sit')$('timeline').value=t;
+  const soles=Object.fromEntries(['left','right'].map(side=>[side,new THREE.Box3().setFromObject(bodies.get(side+'_ankle_roll_link')).min.y]));
+  stage.dataset.mode=mode;stage.dataset.motion='procedural-seat';stage.dataset.cup=cup.position.toArray().join(',');stage.dataset.time=t.toFixed(3);stage.dataset.seated=String(seated);stage.dataset.seatTime=t.toFixed(3);stage.dataset.pelvisHeight=sample.pelvisHeight.toFixed(6);stage.dataset.soles=JSON.stringify(soles);delete stage.dataset.contactError;
+}
+function startSitting(fromApi=false){
+  if(!robot||manualCoffee||alignment||seatAction)throw Error('Робот сейчас занят');
+  if(seated)throw Error('Робот уже сидит');
+  const start=sampleSit(0,chairProfile);
+  if(fromApi&&worldRoot.position.distanceTo(new THREE.Vector3(...start.position))>.8)throw Error('Подойди к креслу: не дальше 0.8 м от точки посадки');
+  controller.setEnabled(false);seatTime=0;seatPaused=false;playing=!fromApi;
+  if(fromApi){seatAction={time:0,reverse:false};$('phase').textContent='Садится в кресло'}
+  else{mode='sit';time=0;configureMode();seatPose(0);view(false)}
+}
+function startStanding(){
+  if(!seated&&seatTime<=0)throw Error('Робот ещё не сел');
+  controller.setEnabled(false);seatAction={time:seatTime,reverse:true};seated=false;seatPaused=false;playing=false;
+  mode='control';configureMode();
+}
 function pose(t){
   if(!robot)return;
   applyMotion(t);
@@ -162,7 +198,8 @@ function pose(t){
 }
 async function load(){
   try{
-    const [gltf,meta,mot]=await Promise.all([new GLTFLoader().loadAsync('/assets/g1/g1.glb'),fetch('/assets/g1/metadata.json').then(r=>r.json()),fetch('/assets/motion/coffee.json').then(r=>r.ok?r.json():null).catch(()=>null)]);
+    const [gltf,meta,mot,chair]=await Promise.all([new GLTFLoader().loadAsync('/assets/g1/g1.glb'),fetch('/assets/g1/metadata.json').then(r=>r.json()),fetch('/assets/motion/coffee.json').then(r=>r.ok?r.json():null).catch(()=>null),new GLTFLoader().loadAsync(new URL('../../room/assets/models/armchair_blue.glb',import.meta.url).href)]);
+    chair.scene.position.set(chairProfile.chairX,0,chairProfile.chairZ);chair.scene.rotation.y=chairProfile.chairYaw;chair.scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}});scene.add(chair.scene);
     metadata=meta;motion=mot;robot=gltf.scene;robotRoot.add(robot);
     robot.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}bodies.set(node.name,node);rest.set(node,node.quaternion.clone())});
     const entries=Array.isArray(meta.bodies)?meta.bodies:Object.values(meta.bodies||{});
@@ -177,22 +214,24 @@ async function load(){
     const wrist=bodies.get('right_wrist_yaw_link');
     if(!wrist||joints.length!==7)throw Error(`Не найдена цепочка руки: ${joints.length} суставов`);
     grip=new THREE.Object3D();grip.position.set(.1465,.022,0);wrist.add(grip);
-    controller=new RobotController({worldRoot,robotRoot,camera,controls,joints:allJoints,onInteract:interact,onManualInput:()=>{if(api?.active)api.cancel()},onStatus:message=>{if(mode==='control'&&!manualCoffee)$('phase').textContent=message}});
+    pelvisRestPosition=bodies.get('pelvis').position.clone();
+    controller=new RobotController({worldRoot,robotRoot,camera,controls,joints:allJoints,obstacles:[{minX:chairProfile.chairX-.537,maxX:chairProfile.chairX+.537,minZ:-.565,maxZ:.458}],onInteract:interact,onManualInput:()=>{if(api?.active)api.cancel()},onStatus:message=>{if(mode==='control'&&!manualCoffee)$('phase').textContent=message}});
     api=new SimulationApi({
       status:message=>{$('api-status').textContent=message;$('api-connect').textContent=api.socket?'Отключить API':'Подключить API'},
-      state:()=>({position:worldRoot.position.toArray(),heading:worldRoot.rotation.y,mode,coffeeActive:manualCoffee||!!alignment,cup:cup.position.toArray(),motion:motion?'kimodo-g1':'procedural',time,joints:Object.fromEntries(allJoints.map(j=>[j.name,j.angle])),limits:Object.fromEntries(allJoints.map(j=>[j.name,[j.min,j.max]])),activeCommand:api?.active?.id??null}),
-      control:()=>{if(manualCoffee||alignment)throw Error('Сейчас робот занят кофе');if(mode!=='control')setMode('control')},
+      state:()=>({position:worldRoot.position.toArray(),heading:worldRoot.rotation.y,mode,coffeeActive:manualCoffee||!!alignment,seatingActive:!!seatAction,seatingPaused:seatPaused,seated,seatTime,chair:{id:'armchair_blue',...chairProfile,seatHeight:ARMCHAIR_SEAT.seatHeight,standingPosition:sampleSit(0,chairProfile).position},cup:cup.position.toArray(),motion:mode==='sit'||seated||seatAction||seatPaused?'procedural-seat':motion?'kimodo-g1':'procedural',time,joints:Object.fromEntries(allJoints.map(j=>[j.name,j.angle])),limits:Object.fromEntries(allJoints.map(j=>[j.name,[j.min,j.max]])),activeCommand:api?.active?.id??null}),
+      control:type=>{if(manualCoffee||alignment||seatAction)throw Error('Сейчас робот занят');if((seated||seatPaused)&&type!=='stand'&&type!=='joints')throw Error('Сначала нужно встать');if(mode!=='control'){if(seated||seatPaused){mode='control';playing=false;configureMode()}else setMode('control')}},
       drive:(forward,right,sprint)=>controller.drive(forward,right,sprint),
       stopDrive:()=>controller.stopDrive(),
       turn:heading=>{worldRoot.rotation.y=heading},
       coffee:()=>{if(worldRoot.position.length()>.75)throw Error('Подойди к кофейной станции: расстояние до [0,0,0] должно быть не больше 0.75 м');interact()},
+      sit:()=>startSitting(true),stand:()=>startStanding(),
       validateAngles:angles=>Object.entries(angles).map(([name,angle])=>{
         const joint=allJoints.find(j=>j.name===name);
         if(!joint||!Number.isFinite(angle)||angle<joint.min||angle>joint.max)throw Error(`Недопустимый угол сустава ${name}`);
         return [joint,angle];
       }),
       setAngles:angles=>{for(const [joint,angle] of angles)setJoint(joint,angle);robotRoot.updateMatrixWorld(true)},
-      stop:()=>{controller.stopDrive();playing=false;if(mode==='control'){manualCoffee=false;alignment=null;controller.setEnabled(true);cup.position.copy(cupRest)}},
+      stop:()=>{controller.stopDrive();playing=false;if(mode==='control'){manualCoffee=false;alignment=null;if(seatAction){seatTime=seatAction.time;seatAction=null;seatPaused=true}controller.setEnabled(!seated&&!seatPaused);cup.position.copy(cupRest)}},
     });
     $('api-connect').onclick=()=>{if(api.socket)api.disconnect();else api.connect($('api-token').value)};
     $('loading').hidden=true;
@@ -201,21 +240,28 @@ async function load(){
   }catch(e){$('loading').textContent=`Не удалось загрузить демку: ${e.message}`;console.error(e)}
 }
 $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'Пауза':'Продолжить'};
-$('replay').onclick=()=>{if(mode==='control')interact();else{time=0;playing=true;$('play').textContent='Пауза'}};
-$('timeline').oninput=e=>{time=+e.target.value;playing=false;$('play').textContent='Продолжить';pose(time)};
-function view(close){camera.position.set(...(close?[-1.05,1.26,1.15]:[-2.1,1.6,2.8]));controls.target.set(...(close?[-.25,.94,.3]:[-.05,.82,.12]));camera.position.add(worldRoot.position);controls.target.add(worldRoot.position);$('close').classList.toggle('selected',close);$('wide').classList.toggle('selected',!close);controls.update()}
+$('replay').onclick=()=>{if(mode==='control'){if(seated)startStanding();else interact()}else{time=0;playing=true;$('play').textContent='Пауза'}};
+$('timeline').oninput=e=>{time=+e.target.value;playing=false;$('play').textContent='Продолжить';if(mode==='sit')seatPose(time);else pose(time)};
+function view(close){const sitting=mode==='sit'||seated||!!seatAction;camera.position.set(...(sitting?(close?[-1.05,1.6,1.8]:[-1.8,2.3,2.8]):(close?[-1.05,1.26,1.15]:[-2.1,1.6,2.8])));controls.target.set(...(sitting?[0,.32,-.1]:(close?[-.25,.94,.3]:[-.05,.82,.12])));camera.position.add(worldRoot.position);controls.target.add(worldRoot.position);$('close').classList.toggle('selected',close);$('wide').classList.toggle('selected',!close);controls.update()}
 $('wide').onclick=()=>view(false);$('close').onclick=()=>view(true);
 function setMode(next){
-  if(!controller)return;mode=next;manualCoffee=false;alignment=null;
+  if(!controller)return;mode=next;manualCoffee=false;alignment=null;seatAction=null;seated=false;seatPaused=false;seatTime=0;$('seat').textContent='Сесть в кресло';
+  stage.dataset.seated='false';
   controller.setEnabled(next==='control');time=0;playing=next==='demo';
   if(next==='demo'){worldRoot.position.set(0,0,0);worldRoot.quaternion.identity()}
   cup.position.copy(cupRest);cup.quaternion.identity();
-  $('manual').classList.toggle('selected',next==='control');$('demo').classList.toggle('selected',next==='demo');
-  $('timeline').disabled=next==='control';$('play').disabled=next==='control';
-  $('replay').textContent=next==='control'?'Взять кофе · E':'Сначала ↺';
-  $('subtitle').textContent=next==='control'?'WASD — движение · Shift — быстрее · E у стола — взять кофе':'Берёт чашку. Поднимает. Возвращает на стол.';
+  configureMode();
   stage.tabIndex=0;stage.focus();view(false);
   $('provenance').textContent=next==='control'?'Unitree G1 · WASD / Shift / E · перетаскивай сцену, чтобы повернуть камеру':`Unitree G1 · ${motionLabel()} · локальная демка`;
+}
+function configureMode(){
+  $('demo-title').textContent=mode==='sit'||seated||seatAction?'Посадка':mode==='control'?'Управление':'Кофе';
+  $('seat').textContent=seated||seatPaused||seatAction?.reverse?'Встать':'Сесть в кресло';
+  $('manual').classList.toggle('selected',mode==='control');$('demo').classList.toggle('selected',mode==='demo');$('seat').classList.toggle('selected',mode==='sit'||seated||!!seatAction);
+  $('timeline').max=clipDuration();$('timeline').disabled=mode==='control';$('play').disabled=mode==='control';$('loop').disabled=mode==='sit';
+  $('replay').textContent=mode==='control'?(seated?'Встать':'Взять кофе · E'):'Сначала ↺';
+  $('subtitle').textContent=mode==='sit'?'Переносит вес. Садится. Остаётся в кресле.':mode==='control'?'WASD — движение · Shift — быстрее · E у стола — кофе · R — встать':'Берёт чашку. Поднимает. Возвращает на стол.';
+  $('provenance').textContent=mode==='sit'||seated||seatAction||seatPaused?'Unitree G1 · посадка под armchair_blue · стопы на опоре · процедурная анимация':`Unitree G1 · ${motionLabel()} · локальная демка`;
 }
 function interact(){
   if(mode!=='control'||manualCoffee)return;
@@ -223,14 +269,21 @@ function interact(){
   controller.setEnabled(false);manualCoffee=true;time=0;playing=false;
   alignment={elapsed:0,position:worldRoot.position.clone(),rotation:worldRoot.quaternion.clone()};
 }
-$('manual').onclick=()=>{api?.cancel();setMode('control')};$('demo').onclick=()=>{api?.cancel();setMode('demo')};
+$('manual').onclick=()=>{api?.cancel();if(seated||seatTime>0)startStanding();else setMode('control')};$('demo').onclick=()=>{api?.cancel();setMode('demo')};
+$('seat').onclick=()=>{api?.cancel();try{if(seated||seatPaused||seatAction?.reverse)startStanding();else startSitting()}catch(error){$('phase').textContent=error.message}};
+addEventListener('keydown',event=>{if(event.code==='KeyR'&&(seated||seatPaused)&&!event.target.closest?.('input,textarea,button,select')){api?.cancel();startStanding()}});
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 let previous=performance.now();
 function animate(now){
   requestAnimationFrame(animate);const dt=Math.min((now-previous)/1000,.05);previous=now;
   if(robot){
     api?.beforeUpdate(dt);
-    if(alignment){
+    if(seatAction){
+      seatAction.time=THREE.MathUtils.clamp(seatAction.time+(seatAction.reverse?-dt:dt),0,SIT_DURATION);seatPose(seatAction.time);
+      if((!seatAction.reverse&&seatAction.time===SIT_DURATION)||(seatAction.reverse&&seatAction.time===0)){const wasReverse=seatAction.reverse;seatAction=null;seated=!wasReverse;if(wasReverse){controller.setEnabled(true);seatTime=0}configureMode()}
+    }else if(mode==='sit'){
+      if(playing){time=Math.min(time+dt,SIT_DURATION);if(time===SIT_DURATION){playing=false;$('play').textContent='Продолжить'}}seatPose(time);
+    }else if(seated||seatPaused){seatPose(seatTime)}else if(alignment){
       const previousPosition=worldRoot.position.clone();alignment.elapsed+=dt;
       const f=ease(alignment.elapsed/.65);worldRoot.position.copy(alignment.position).multiplyScalar(1-f);worldRoot.quaternion.copy(alignment.rotation).slerp(new THREE.Quaternion(),f);
       const delta=worldRoot.position.clone().sub(previousPosition);camera.position.add(delta);controls.target.add(delta);pose(0);$('phase').textContent='Поворачивается к чашке';

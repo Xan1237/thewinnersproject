@@ -1,3 +1,4 @@
+import { sampleSit } from '../../robot/src/sitting-motion.js';
 import * as THREE from 'three';
 import { G1 } from './g1.js';
 import { HOLD_POSE, gaitJoints } from '../server/core.js';
@@ -29,12 +30,14 @@ export class Actor {
     this.id = start.session;
     this.model = model;
     this.color = color;
+    this.task = start.task;
+    this.seatPlacement = start.seat_placement ?? null;
     this.kind = kindOf(model);
     this.g1 = new G1(template, { color });
     this.scene = scene;
     scene.add(this.g1.group);
     const [x, z] = start.position;
-    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false, pose: null, poseT0: 0 }];
+    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false, pose: null, poseT0: 0, seatTime: -1 }];
     this.clock = 0;
     this.index = 0;
     this.cur = { ...this.keys[0] };
@@ -64,9 +67,9 @@ export class Actor {
 
   enqueue(ev) {
     const last = this.keys[this.keys.length - 1];
-    ev.path.forEach(([x, z, h, phase, blend], i) => {
+    ev.path.forEach(([x, z, h, phase, blend, seatTime = -1], i) => {
       const lastSample = i === ev.path.length - 1;
-      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0 });
+      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, seatTime, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0 });
     });
     // A pose (sit, jump, ...) starts when the robot has arrived; timed ones return to standing.
     const end = this.keys[this.keys.length - 1];
@@ -84,11 +87,15 @@ export class Actor {
 
   /** The sim gave the robot a new task where it stands (a spoken order): stand up, back to work. */
   retask(ev) {
-    const last = this.keys[this.keys.length - 1];
+    const last = { ...this.cur, t: this.clock };
+    this.keys = [last]; this.index = 0; this.tagLabels = [];
     this.finished = null;
+    this.task = ev.task;
+    this.seatPlacement = ev.seat_placement ?? null;
+    this.ended = false;
     this.idleFor = 0;
     this.g1.ring.material.color.set(this.color);
-    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, pose: null, poseT0: 0 });
+    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, pose: null, poseT0: 0, poseArg: 0, seatTime: -1 });
     if (ev.task === 'fetch_coffee' && !this.cup) { this.cup = this.cupFactory(); this.cupHome = this.cup.position.clone(); this.scene.add(this.cup); }
     this.tagLabels.push({ t: last.t, text: ev.task_description ? `new order` : '' });
   }
@@ -102,11 +109,12 @@ export class Actor {
     const g = this.g1;
     g.group.position.set(k.x, THREE.MathUtils.damp(g.group.position.y, k.y, 8, Math.max(dt, 1 / 60)), k.z);
     g.group.rotation.y = k.h;
-    const clip = getClip(k.pose);
+    const sit = this.seatPlacement && k.seatTime >= 0 ? sampleSit(k.seatTime, this.seatPlacement) : null;
+    const clip = sit ? null : getClip(k.pose);
     const poseT = Math.max(this.clock - (k.poseT0 ?? 0), 0);
-    const joints = clip ? clip.joints(poseT, k) : gaitJoints(k.phase, k.blend);
+    const joints = sit ? sit.joints : clip ? clip.joints(poseT, k) : gaitJoints(k.phase, k.blend);
     if (k.holding && !clip) Object.assign(joints, HOLD_POSE);
-    g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0, clip?.root ? clip.root(poseT, k) : null);
+    g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0, clip?.root ? clip.root(poseT, k) : null, sit?.pelvisHeight);
     if (this.cup) {
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
@@ -125,6 +133,7 @@ export class Actor {
     const k = {
       x: THREE.MathUtils.lerp(a.x, b.x, f), z: THREE.MathUtils.lerp(a.z, b.z, f), h: lerpAngle(a.h, b.h, f),
       phase: THREE.MathUtils.lerp(a.phase, b.phase, f), blend: THREE.MathUtils.lerp(a.blend, b.blend, f), y: b.y,
+      seatTime: b.seatTime >= 0 ? (a.seatTime >= 0 ? THREE.MathUtils.lerp(a.seatTime, b.seatTime, f) : (f > 0 ? b.seatTime * f : -1)) : -1,
       holding: f >= 1 ? b.holding : a.holding, pose: f >= 1 ? b.pose : a.pose, poseT0: f >= 1 ? b.poseT0 : a.poseT0, poseArg: f >= 1 ? b.poseArg : a.poseArg,
     };
     if (idle) { k.blend = THREE.MathUtils.damp(this.cur.blend, 0, 6, dt); k.phase = this.cur.phase; }

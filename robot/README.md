@@ -2,6 +2,8 @@
 
 A real Unitree G1 model takes a mug from a table, raises it, and returns it. Switch to **Управлять · WASD** to move the robot yourself, then press **E** near the table to take the coffee.
 
+**Сесть в кресло** plays a 3.4-second animation fitted to `room/assets/models/armchair_blue.glb`. The feet stay planted while the pelvis lowers to the cushion; the seated pose holds afterward. **Встать** or **R** reverses the motion and returns manual control. The same animation is available in the room arena's **Sit in armchair** preview and `sit:armchair_blue` task.
+
 ## Run locally
 
 Requirements: Node.js 22+, `uv`, and a browser with WebGL. Teammates do not need a Modal account.
@@ -41,6 +43,7 @@ The G1 geometry is assembled from native rigid links; the hands use Unitree's of
 | --- | --- |
 | `src/main.js` | Scene, coffee interaction, arm IK, motion playback and UI |
 | `src/controller.js` | Keyboard input, camera-relative locomotion, table collision and gait |
+| `src/sitting-motion.js` | Shared geometry-fitted sitting clip and calibrated chair placement |
 | `src/api-client.js` | Executes bounded API actions in the running browser |
 | `server/api.js` | Local HTTP command queue and state relay |
 | `tools/robot_api.py` | Standard-library Python adapter for LLM tools |

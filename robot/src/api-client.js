@@ -55,9 +55,11 @@ export class SimulationApi {
     }
     if (this.active) { this.ack(id, 'rejected', 'Симулятор уже выполняет команду'); return; }
     try {
-      this.sim.control();
+      this.sim.control(command.type);
       const active = { id, command, elapsed: 0 };
       if (command.type === 'coffee') this.sim.coffee();
+      else if (command.type === 'sit') this.sim.sit();
+      else if (command.type === 'stand') this.sim.stand();
       else if (command.type === 'turn') active.heading = this.sim.state().heading;
       else if (command.type === 'joints') active.angles = this.sim.validateAngles(command.angles);
       this.active = active;
@@ -81,7 +83,7 @@ export class SimulationApi {
     const active = this.active;
     if (active) {
       if (active.angles) this.sim.setAngles(active.angles);
-      const finished = active.command.type === 'coffee' ? !this.sim.state().coffeeActive : active.elapsed >= active.command.duration;
+      const finished = active.command.type === 'coffee' ? !this.sim.state().coffeeActive : ['sit','stand'].includes(active.command.type) ? !this.sim.state().seatingActive : active.elapsed >= active.command.duration;
       if (finished) {
         this.active = null;
         this.sim.stopDrive();

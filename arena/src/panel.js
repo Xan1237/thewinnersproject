@@ -85,7 +85,7 @@ export class Panel {
 
   addStep(ev) {
     const a = ev.action || [];
-    const act = `fwd ${(a[0] ?? 0).toFixed(2)} · right ${(a[1] ?? 0).toFixed(2)} · turn ${(a[2] ?? 0).toFixed(2)}${(a[3] ?? 0) > 0.5 ? ' · GRAB' : ''}`;
+    const act = `fwd ${(a[0] ?? 0).toFixed(2)} · right ${(a[1] ?? 0).toFixed(2)} · turn ${(a[2] ?? 0).toFixed(2)}${(a[3] ?? 0) > 0.5 ? (ev.task?.startsWith('sit:') ? ' · SIT' : ' · GRAB') : ''}`;
     const joints = KEY_JOINTS.filter(k => ev.joints && k in ev.joints).map(k => `<span>${esc(k.replace('_joint', ''))}</span><span>${ev.joints[k].toFixed(3)}</span>`).join('');
     this.addRow(ev.model,
       `<div class="label">${esc(ev.label || '(no label)')}</div>${this.detailHtml(ev.detail)}<div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +

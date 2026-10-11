@@ -4,6 +4,13 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { createRobotApi, validateCommand, JOINT_NAMES } from './api.js';
 
+test('sit and stand are bounded actions without arbitrary overrides',()=>{
+  assert.deepEqual(validateCommand({type:'sit'}),{type:'sit'});
+  assert.deepEqual(validateCommand({type:'stand'}),{type:'stand'});
+  assert.throws(()=>validateCommand({type:'sit',duration:Infinity}),/field/);
+  assert.throws(()=>validateCommand({type:'stand',chair:'other'}),/field/);
+});
+
 async function setup(t, options = {}) {
   const api = createRobotApi({ port: 0, token: '', ...options });
   const { port } = await api.start();
