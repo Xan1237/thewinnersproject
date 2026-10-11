@@ -53,11 +53,11 @@ def test_voice_order_reaches_every_agent(tmp_path):
         t.start()
         assert _wait(lambda: len(_call(base, "/sim/sessions")["sessions"]) == 3)  # robots spawned, idle
 
-        _call(base, "/sim/command", {"task": "sit"})
+        _call(base, "/sim/command", {"task": "goto:lectern"})
         def seated():
             ss = _call(base, "/sim/sessions")["sessions"]
             return len(ss) == 3 and all(s["done"] and s["success"] for s in ss)
-        assert _wait(seated), "all robots sat down"
+        assert _wait(seated), "all robots reached the lectern"
         assert _wait(lambda: (tmp_path / "episodes.jsonl").exists() and len((tmp_path / "episodes.jsonl").read_text().splitlines()) >= 3)
         tasks = {s["observation"]["text"] for s in _call(base, "/sim/sessions")["sessions"]}
         assert len(tasks) == 3

@@ -15,6 +15,7 @@
           <button data-view="stage">Stage</button>
           <button data-view="follow">Follow</button>
           <button id="databtn">Labeled data</button>
+          <button id="explainbtn">What is this data?</button>
           <label>Speed
             <select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
           </label>
@@ -76,5 +77,11 @@
     </div>
   </div>
   <script type="module" src="/src/main.js"></script>
+  <div id="explain" hidden>
+    <div class="ewin">
+      <div class="dtop"><h3>What is this data?</h3><button id="explainclose" class="btn">Close</button></div>
+      <div id="explainbody"></div>
+    </div>
+  </div>
 </body>
 </html>

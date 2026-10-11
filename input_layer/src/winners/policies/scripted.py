@@ -63,7 +63,15 @@ class GoalSeekPolicy:
         self, obs: Observation, task: str, action_spec: ActionSpec, history: list[Step]
     ) -> Action:
         _x, _z, _heading, fwd, right, dist, _holding, _frac = obs.state[:8]
-        if _is_pickup(task) and _holding < 0.5 and dist <= self.interact_dist:
+        part = None
+        if len(obs.state) >= 12:  # recipe tasks: the state says when to use something and when to wait
+            _prog, can_use, must_wait, _machine = obs.state[8:12]
+            part = STEP_LABELS[min(len(STEP_LABELS) - 1, round(_prog * (len(STEP_LABELS) - 1)))]
+            if must_wait > 0.5:
+                return Action(values=[0.0, 0.0, 0.0, 0.0], label=part)
+            if can_use > 0.5 and dist <= self.interact_dist:
+                return Action(values=[0.0, 0.0, 0.0, 1.0], label=part)
+        elif _is_pickup(task) and _holding < 0.5 and dist <= self.interact_dist:
             return Action(values=[0.0, 0.0, 0.0, 1.0], label="grab the coffee")
         angle = math.atan2(right, fwd)  # 0 = dead ahead, +pi/2 = goal on the right
         turn = -self.turn_gain * angle
@@ -75,7 +83,15 @@ class GoalSeekPolicy:
         label = "walk toward the goal" if abs(angle) < 0.4 else (
             "turn right toward the goal" if angle > 0 else "turn left toward the goal"
         )
+        if part and obs.state[8] > 0:
+            label = f"{label} ({part})"
         return Action(values=values, label=label)
+
+
+STEP_LABELS = [
+    "pick up a cup", "put the cup under the spout", "press the brew button", "wait for the coffee",
+    "take the full cup", "put the cup on the counter", "cheer",
+]
 
 
 class FixedPolicy:

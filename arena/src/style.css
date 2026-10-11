@@ -150,3 +150,19 @@ canvas#netviz { width: 100%; background: #10151d; border: 1px solid var(--line);
 .dkey { margin-top: 6px; font-size: 10.5px; color: var(--mute); display: flex; gap: 6px; align-items: center; }
 .dkey i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 6px; }
 @keyframes pulse { from { opacity: .45 } to { opacity: 1 } }
+
+.part { font-size: 11px; color: #ffcf6b; margin: 2px 0 4px; }
+#explainbtn { }
+#explain { position: fixed; inset: 0; z-index: 21; background: rgba(5, 8, 12, .74); display: grid; place-items: center; }
+#explain[hidden] { display: none; }
+.ewin { width: min(1000px, 94vw); max-height: 92vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+#explainbody { padding: 6px 20px 20px; }
+#explainbody .lead { font-size: 15px; line-height: 1.45; }
+#explainbody .live { padding: 10px 12px; margin: 10px 0 14px; border-radius: 10px; background: #10151d; border-left: 3px solid #ffcf6b; font-size: 14px; }
+#explainbody .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 22px; }
+#explainbody h4 { margin: 8px 0 6px; font-size: 12px; letter-spacing: .08em; color: #ffcf6b; } #explainbody h4 small { color: var(--mute); font-weight: 400; letter-spacing: 0; }
+#explainbody table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+#explainbody td { padding: 3px 6px; border-bottom: 1px solid var(--line); }
+#explainbody td.n { font-family: ui-monospace, monospace; color: #8fd0ff; white-space: nowrap; } #explainbody td.v { text-align: right; font-variant-numeric: tabular-nums; color: #ffe08a; }
+#explainbody .lab { font-size: 16px; margin: 4px 0; }
+#explainbody .why { margin-top: 16px; padding: 10px 14px; border-radius: 10px; background: #10151d; } #explainbody .why li { margin: 6px 0; line-height: 1.4; font-size: 13.5px; }

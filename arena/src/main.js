@@ -3,10 +3,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { loadG1Template } from './g1.js';
+import { CoffeeLine } from './bar.js';
 import { Actor } from './actor.js';
 import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
 import { setupVoice } from './voice.js';
+import { setupExplain } from './explain.js';
 import { setupDataView } from './dataview.js';
 import { loadGeneratedClips } from './animations.js';
 import './style.css';
@@ -68,11 +70,14 @@ for (const [c, i, x, y, z] of [
 // ---- room
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 let manifest;
+let coffeeLine = null;
 async function loadRoom() {
   const [gltf, man] = await Promise.all([loader.loadAsync('/room/room.glb'), fetch('/room/manifest.json').then(r => r.json())]);
   manifest = man;
   const slide = new THREE.TextureLoader().load('/room/slide.jpg'); slide.colorSpace = THREE.SRGBColorSpace;
   slide.flipY = false;  // the quad's UVs follow the glTF convention (v = 0 at the top)
+  // The audience chairs and the chairs at the cup table make room for the coffee line.
+  gltf.scene.traverse(n => { if (/^(FoldChair_\d|TableChair\d)/.test(n.name)) n.visible = false; });
   gltf.scene.traverse(n => {
     if (n.name === 'Ceiling' || n.name === 'WallSouth') n.visible = false;  // keep the view into the room open
     if (n.isMesh) {
@@ -84,6 +89,7 @@ async function loadRoom() {
     }
   });
   scene.add(gltf.scene);
+  coffeeLine = new CoffeeLine(scene, gltf.scene);
   // Wall glass and sky planes should not cast shadows; the screen shows the slide.
   return gltf;
 }
@@ -109,6 +115,7 @@ const pending = [];
 
 const onVoiceEvent = setupVoice();
 setupDataView();
+setupExplain(panel);
 loadGeneratedClips();
 function handle(ev) {
   panel.onEvent(ev);
@@ -119,7 +126,9 @@ function handle(ev) {
 function applyActor(ev) {
   if (ev.type === 'session_started') {
     const prev = actors.get(ev.session); if (prev) prev.dispose();
-    actors.set(ev.session, new Actor(template, scene, ev, { color: panel.color(ev.model), model: ev.model, cupFactory: makeCup }));
+    const color = panel.color(ev.model);
+    if (ev.slot != null) coffeeLine?.claim(ev.slot, color);
+    actors.set(ev.session, new Actor(template, scene, ev, { color, model: ev.model, cupFactory: makeCup, onBar: (slot, bar) => coffeeLine?.set(slot, bar) }));
   } else if (ev.type === 'step') {
     actors.get(ev.session)?.enqueue(ev);
   } else if (ev.type === 'task_changed') {
@@ -137,6 +146,7 @@ function applyActor(ev) {
 const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
+  coffeeLine?.update(performance.now());
   for (const [id, a] of actors) {
     a.update(dt, speed);
     // Finished runs linger for a few seconds, then leave the room.

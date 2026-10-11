@@ -35,7 +35,7 @@ MENU: dict[str, tuple[list[float], str]] = {
     "sidestep_left": ([0.0, -0.8, 0.0, 0.0], "Step sideways to the left without turning. Use to get around an obstacle that is directly ahead."),
     "sidestep_right": ([0.0, 0.8, 0.0, 0.0], "Step sideways to the right without turning. Use to get around an obstacle that is directly ahead."),
     "back_off": ([-0.6, 0.0, 0.0, 0.0], "Walk backwards. Use when blocked or too close to something."),
-    "grab": ([0.0, 0.0, 0.0, 1.0], "Reach out and pick up the object in front of you. Only useful when the task is to pick something up and you are within 1 m of it."),
+    "grab": ([0.0, 0.0, 0.0, 1.0], "Use whatever is within reach: pick up a cup, put it down, or press a button. Only useful within 1 m of the thing you want to use (check the part of the task you are on)."),
     "stop": ([0.0, 0.0, 0.0, 0.0], "Stand still. Use when the task is done."),
 }
 

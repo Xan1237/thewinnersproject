@@ -32,7 +32,7 @@ test('episodes are recorded per model folder and served as labeled data', async 
     const jsonl = await (await fetch(`${base}/sim/data/opus-5.5-test.jsonl`)).text();
     const row = JSON.parse(jsonl.split('\n')[0]);
     assert.equal(row.model, 'Opus 5.5 (test)');
-    assert.equal(row.state.length, 8);
+    assert.equal(row.state.length, 12);
     assert.equal(row.label, 'forward');
     assert.equal(row.plan, 'go');
     assert.equal(row.cost_usd, 0.01);

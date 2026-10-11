@@ -9,6 +9,13 @@ export const TURN_RATE = 1.5;     // rad/s at turn = 1
 export const GOTO_RADIUS = 1.2;
 export const COFFEE_RADIUS = 1.0;
 export const SIT_RADIUS = 0.95;
+export const STATION_RADIUS = 0.95;   // how close a robot must be to use a machine / counter spot
+export const BREW_STEPS = 8;          // decision steps the machine needs to brew
+/** The coffee line. Two long tables stand where the audience chairs used to be; every robot has its own numbered spot on both. */
+export const BAR = { slots: 8, x0: -5.15, dx: 0.5, machineZ: 2.9, serveZ: 0.8, length: 3.6, depth: 0.7 };
+export const barSlot = (slot, which) => ({ id: `${which}_${slot}`, kind: 'station', slot, x: BAR.x0 + BAR.dx * (slot % BAR.slots), z: which === 'machine' ? BAR.machineZ : BAR.serveZ,
+  name: which === 'machine' ? 'your coffee spout' : 'your spot on the serving counter' });
+const MACHINE_CODE = { empty: 0, cup: 1 / 3, brewing: 2 / 3, ready: 1 };
 /** Emotes: a one-step task that ends with the robot playing an animation clip (see arena/src/animations.js). */
 export const EMOTES = { jump: 3.0, wave: 4.0, dance: 4.0, cheer: 2.4 };
 /** How far in front of a chair's centre a robot stands when it sits down (its pelvis moves back onto the seat). */
@@ -18,11 +25,11 @@ export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
   low: [-1, -1, -1, 0],
   high: [1, 1, 1, 1],
-  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs the coffee cup when within 1.0 m',
+  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 uses what is in reach (picks up, puts down or presses a button) when within 1.0 m',
 };
 export const OBSERVATION_SPEC = {
-  names: ['x', 'z', 'heading', 'goal_forward', 'goal_right', 'goal_dist', 'holding', 'steps_left_frac'],
-  description: 'x,z in metres (world), heading in radians (0 faces +Z). goal_forward/goal_right: target position in the robot frame (metres; goal_right < 0 means the target is on your left, so turn left = positive turn). holding: 1 once the coffee cup is in hand.',
+  names: ['x', 'z', 'heading', 'goal_forward', 'goal_right', 'goal_dist', 'holding', 'steps_left_frac', 'task_progress', 'can_use', 'must_wait', 'machine'],
+  description: 'task_progress: how far through the recipe (0..1). can_use: 1 when the current part needs the interact action. must_wait: 1 while the current part is waiting for the machine. machine: your coffee spout (0 empty, 0.33 cup in, 0.67 brewing, 1 ready). x,z in metres (world), heading in radians (0 faces +Z). goal_forward/goal_right: target position in the robot frame (metres; goal_right < 0 means the target is on your left, so turn left = positive turn). holding: 1 once the coffee cup is in hand.',
 };
 
 const normAngle = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -82,9 +89,14 @@ export const HOLD_POSE = {
 
 export class World {
   constructor(manifest) {
-    this.manifest = manifest;
     this.bounds = manifest.bounds;
-    this.objects = manifest.objects;
+    // The audience chairs and the chairs at the cup table make room for the coffee line.
+    this.objects = [
+      ...manifest.objects.filter(o => !/^(fold_chair|table_chair)/.test(o.id)),
+      { id: 'coffee_bar', kind: 'table', name: 'coffee machine bar', x: (2 * BAR.x0 + BAR.dx * (BAR.slots - 1)) / 2, z: BAR.machineZ, sx: BAR.length, sz: BAR.depth, rot: 0, height: 0.74, solid: true },
+      { id: 'serve_bar', kind: 'table', name: 'serving counter', x: (2 * BAR.x0 + BAR.dx * (BAR.slots - 1)) / 2, z: BAR.serveZ, sx: BAR.length, sz: BAR.depth, rot: 0, height: 0.74, solid: true },
+    ];
+    this.manifest = { ...manifest, objects: this.objects, bar: BAR };
     this.byId = new Map(this.objects.map(o => [o.id, o]));
     this.solids = this.objects.filter(o => o.solid);
     this.platforms = this.objects.filter(o => o.kind === 'platform');
@@ -93,6 +105,13 @@ export class World {
     // sim heading of a person sitting in it is rot + 180 degrees.
     this.seats = this.objects.filter(o => o.kind === 'chair' || o.kind === 'folding').map(o => ({ ...o, heading: normAngle(((o.rot ?? 0) + 180) * Math.PI / 180) }));
     this.peers = () => [];   // the server plugs in the other live sessions (robots are obstacles for each other)
+  }
+
+  /** The lowest numbered spot on the coffee line that no other robot uses. */
+  freeSlot(self) {
+    const used = new Set([...this.peers()].filter(p => p !== self).map(p => p.slot));
+    for (let i = 0; i < BAR.slots; i++) if (!used.has(i)) return i;
+    return 0;
   }
 
   /** Is another robot standing within body distance of (x, z)? */
@@ -178,25 +197,17 @@ export class World {
   }
 }
 
-/** The shared scenario every agent gets: two stages, no object ids, the agent has to read the room. */
-export const TALK_INSTRUCTION = "You just arrived for the talk. Grab yourself a coffee, then find a free seat in the audience and sit down.";
-/** Little routines the robots work through: each is a few parts and one instruction in plain words. */
+/** The one task: make a coffee and serve it. Seven parts, one instruction in plain words. */
+export const COFFEE_INSTRUCTION = 'Make yourself a coffee and serve it. Take a cup from the cup table, put it under your own spout on the coffee machine bar, press the brew button, wait until the coffee is ready, take the full cup, put it down on your own spot on the serving counter, then cheer.';
 export const SCENARIOS = {
-  talk: { plan: ['fetch_coffee', 'sit'], instruction: TALK_INSTRUCTION },
-  lectern_wave: { plan: ['goto:lectern', 'wave'], instruction: 'Walk over to the white lectern and wave at the room.' },
-  plant_coffee: { plan: ['goto:plant_tall', 'fetch_coffee'], instruction: 'Take a look at the tall plant by the wall, then go and grab a coffee.' },
-  coffee_lectern: { plan: ['fetch_coffee', 'goto:lectern'], instruction: 'Grab a coffee and bring it up to the lectern.' },
-  armchair: { plan: ['sit:armchair_blue'], instruction: 'Go up on the stage and sit in the big blue armchair.' },
-  speaker_dance: { plan: ['goto:speaker_stand', 'dance'], instruction: 'Go over to the speaker on its stand and dance a little.' },
-  tripod_jump: { plan: ['goto:tripod', 'jump'], instruction: 'Walk to the camera tripod and jump for the camera.' },
-  column_seat: { plan: ['goto:blue_column', 'sit'], instruction: 'Check out the blue column near the stage, then take a seat in the audience.' },
+  make_coffee: { plan: ['fetch_coffee', 'station:place', 'station:press', 'station:wait', 'station:take', 'station:serve', 'cheer'], instruction: COFFEE_INSTRUCTION },
 };
 
 /** What an object looks like to the robots. They never see ids, only these plain words. */
 const LABELS = {
   chair_navy_left: 'navy wooden chair on the stage', chair_navy_middle: 'navy wooden chair on the stage', armchair_blue: 'big blue armchair on the stage',
-  plant_tall: 'tall leafy plant', plant_medium: 'potted plant', blue_column: 'blue column', table: 'long white folding table',
-  coffee_cup: 'coffee cup', speaker_stand: 'speaker on a stand', tripod: 'camera tripod', lectern: 'white lectern',
+  plant_tall: 'tall leafy plant', plant_medium: 'potted plant', blue_column: 'blue column', table: 'white cup table', coffee_bar: 'coffee machine bar (one spout per robot)', serve_bar: 'serving counter',
+  coffee_cup: 'cups on the cup table (reachable from any side of the table)', speaker_stand: 'speaker on a stand', tripod: 'camera tripod', lectern: 'white lectern',
 };
 export function labelOf(o) {
   if (LABELS[o.id]) return LABELS[o.id];
@@ -205,7 +216,7 @@ export function labelOf(o) {
   return o.name;
 }
 
-export const TASK_HELP = `${Object.keys(SCENARIOS).join(' | ')} (little routines) | goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle`;
+export const TASK_HELP = `make_coffee (the full recipe) | goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle`;
 
 /** `ctx.claimed`: seat ids other robots already sit in or walk to. `ctx.from`: where the robot is now. */
 export function resolveTask(world, task, ctx = {}) {
@@ -217,7 +228,14 @@ export function resolveTask(world, task, ctx = {}) {
   if (task === 'fetch_coffee') {
     const cup = world.cup;
     if (!cup) throw new Error('manifest has no coffee_cup');
-    return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the table on the right side of the room, pick up the coffee cup (set interact > 0.5 within 1.0 m of the cup) and hold it.' };
+    return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the cup table on the right side of the room, pick up a cup (set interact > 0.5 within 1.0 m of the edge of the table) and hold it.' };
+  }
+  const st = /^station:(place|press|wait|take|serve)$/.exec(task);
+  if (st) {
+    const op = st[1], slot = ctx.slot ?? 0;
+    const target = barSlot(slot, op === 'serve' ? 'serve' : 'machine');
+    const text = { place: 'Put the cup under your spout (interact within 1 m of it while holding the cup).', press: 'Press the brew button (interact within 1 m of your spout, once the cup is in).', wait: 'Wait next to your spout until the coffee is ready.', take: 'Take the full cup (interact within 1 m of your spout).', serve: 'Put the cup down on your spot on the serving counter (interact within 1 m of it).' }[op];
+    return { kind: 'station', op, target, radius: STATION_RADIUS, description: text };
   }
   if (EMOTES[task]) {
     const at = ctx.from ?? { x: 0, z: 0 };
@@ -258,13 +276,16 @@ export class Session {
     this.task = task;
     this.plan = SCENARIOS[task]?.plan ?? [task];
     this.stage = 0;
+    this.slot = world.freeSlot(this);
+    this.machine = { state: 'empty', left: 0 };
+    this.served = false;
     // With an instruction the robot is "blind": it gets the words and a view of the room, not the target.
     this.instruction = instruction ?? SCENARIOS[task]?.instruction ?? null;
     const rand = mulberry32(seed * 7919 + 13);
-    const first = resolveTask(world, this.plan[0], { claimed });
+    const first = resolveTask(world, this.plan[0], { claimed, slot: this.slot });
     const start = world.startPose(rand, first.target);
     // Tasks without a fixed target (sit on any chair, emotes, idle) depend on where the robot starts.
-    this.spec = ['sit', 'emote', 'idle'].includes(first.kind) ? resolveTask(world, this.plan[0], { claimed, from: start }) : first;
+    this.spec = ['sit', 'emote', 'idle'].includes(first.kind) ? resolveTask(world, this.plan[0], { claimed, from: start, slot: this.slot }) : first;
     this.seated = false;
     this.x = start.x;
     this.z = start.z;
@@ -288,8 +309,11 @@ export class Session {
   retask(task, claimed, instruction = null) {
     this.plan = SCENARIOS[task]?.plan ?? [task];
     this.stage = 0;
+    this.slot = this.world.freeSlot(this);
+    this.machine = { state: 'empty', left: 0 };
+    this.served = false;
     this.instruction = instruction ?? SCENARIOS[task]?.instruction ?? null;
-    this.spec = resolveTask(this.world, this.plan[0], { claimed, from: { x: this.x, z: this.z } });
+    this.spec = resolveTask(this.world, this.plan[0], { claimed, from: { x: this.x, z: this.z }, slot: this.slot });
     this.task = task;
     this.t = 0;
     this.done = false;
@@ -306,7 +330,14 @@ export class Session {
   /** What the agent is told the task is. */
   get taskText() { return this.instruction ?? this.spec.description; }
 
-  goalDist() { return Math.hypot(this.spec.target.x - this.x, this.spec.target.z - this.z); }
+  goalDist() {
+    const t = this.spec.target;
+    if (this.spec.kind === 'fetch_coffee') {   // the cups stand somewhere on the cup table: you can reach them from any side of it
+      const tb = this.world.byId.get('table');
+      if (tb) return Math.hypot(Math.max(Math.abs(this.x - tb.x) - tb.sx / 2, 0), Math.max(Math.abs(this.z - tb.z) - tb.sz / 2, 0));
+    }
+    return Math.hypot(t.x - this.x, t.z - this.z);
+  }
 
   /** Target position expressed in the robot frame. */
   goalLocal(target = this.spec.target) {
@@ -322,10 +353,44 @@ export class Session {
     return Object.fromEntries(Object.entries(joints).map(([k, v]) => [k, round(v)]));
   }
 
+  /** Recipe progress and machine status: what a real controller would get from its task monitor and the machine's own sensor. */
+  taskFeatures() {
+    const k = this.spec.kind, op = this.spec.op;
+    const canUse = (k === 'fetch_coffee' && !this.holding) || (k === 'station' && op !== 'wait');
+    return [this.plan.length > 1 ? this.stage / (this.plan.length - 1) : 0, canUse ? 1 : 0, op === 'wait' ? 1 : 0, MACHINE_CODE[this.machine.state]];
+  }
+
+  /** Where the robot's own navigation should aim: the goal itself when the way is clear, otherwise a point ~1 m down a path around the furniture. */
+  navTarget() {
+    const t = this.spec.target;
+    if (this.spec.kind === 'idle' || this.spec.kind === 'emote' || this.world.lineClear(this.x, this.z, t.x, t.z, Math.max(this.spec.radius - 0.1, 0.3))) return t;
+    const reach = Math.max(this.spec.radius - 0.1, 0.3);
+    const from = this.world.walkGrid(this.x, this.z);
+    let best = null, bestD = Infinity;
+    const { dist, nx, nz, cell, b } = from, r = Math.ceil(reach / cell);
+    const cx = Math.round((t.x - b.minX) / cell), cz = Math.round((t.z - b.minZ) / cell);
+    for (let z = Math.max(cz - r, 0); z <= Math.min(cz + r, nz - 1); z++) for (let x = Math.max(cx - r, 0); x <= Math.min(cx + r, nx - 1); x++) {
+      if (Math.hypot((x - cx) * cell, (z - cz) * cell) <= reach && dist[z * nx + x] < bestD) { bestD = dist[z * nx + x]; best = [x, z]; }
+    }
+    if (!best) return t;
+    const to = this.world.walkGrid(b.minX + best[0] * cell, b.minZ + best[1] * cell).dist;
+    let x = Math.round((this.x - b.minX) / cell), z = Math.round((this.z - b.minZ) / cell);
+    for (let i = 0; i < 10; i++) {
+      let nxt = null, nd = to[z * nx + x];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = x + dx, Z = z + dz;
+        if (X >= 0 && Z >= 0 && X < nx && Z < nz && to[Z * nx + X] < nd) { nd = to[Z * nx + X]; nxt = [X, Z]; }
+      }
+      if (!nxt) break;
+      [x, z] = nxt;
+    }
+    return { x: b.minX + x * cell, z: b.minZ + z * cell };
+  }
+
   observation() {
-    const g = this.goalLocal();
-    const state = [this.x, this.z, this.heading, g.forward, g.right, this.goalDist(), this.holding ? 1 : 0, 1 - this.t / this.maxSteps].map(v => round(v));
-    return { t: this.t, state, text: this.describe(g) };
+    const real = this.goalLocal(), g = this.goalLocal(this.navTarget());
+    const state = [this.x, this.z, this.heading, g.forward, g.right, this.goalDist(), this.holding ? 1 : 0, 1 - this.t / this.maxSteps, ...this.taskFeatures()].map(v => round(v));
+    return { t: this.t, state, text: this.describe(real) };
   }
 
   describe(g = this.goalLocal()) {
@@ -352,6 +417,10 @@ export class Session {
     if (this.plan.length > 1) lines.push(`Progress: part ${this.stage + 1} of ${this.plan.length}${this.stage ? ' (the first part is done)' : ''}.`);
     lines.push(`You are at x=${this.x.toFixed(1)}, z=${this.z.toFixed(1)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees. ${this.holding ? 'You are holding a coffee cup.' : 'Your hands are empty.'}${this.seated ? ' You are sitting down.' : ''}`);
     if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
+    if (this.plan.some(s => s.startsWith('station:'))) {
+      const m = this.machine;
+      lines.push(`Your coffee spout: ${{ empty: 'empty', cup: 'your cup is under it, not brewing yet', brewing: `brewing (about ${Math.max(m.left, 1)} more steps)`, ready: 'the coffee is ready' }[m.state]}.${this.served ? ' Your cup is on the serving counter.' : ''}`);
+    }
     const taken = new Set([...this.world.peers()].filter(p => p !== this && p.seated).map(p => p.spec.target.id));
     const groups = new Map();
     for (const o of this.world.objects) {
@@ -362,13 +431,19 @@ export class Session {
       if (!groups.has(label)) groups.set(label, []);
       groups.get(label).push({ d, deg });
     }
+    if (this.plan.some(s => s.startsWith('station:'))) {
+      for (const [which, label] of [['machine', 'your coffee spout on the coffee machine bar'], ['serve', 'your own spot on the serving counter']]) {
+        const t = barSlot(this.slot, which), l = this.goalLocal(t);
+        groups.set(label, [{ d: Math.hypot(t.x - this.x, t.z - this.z), deg: Math.atan2(l.right, l.forward) * 180 / Math.PI }]);
+      }
+    }
     const where = ({ d, deg }) => {
       const a = Math.abs(deg), side = deg >= 0 ? 'right' : 'left';
       const dir = a < 10 ? 'straight ahead' : a > 150 ? 'directly behind you' : `${a.toFixed(0)}° to your ${side}${a > 100 ? ' (behind you)' : ''}`;
       return `${d.toFixed(1)} m away, ${dir}`;
     };
     const rows = [...groups.entries()].map(([label, list]) => ({ label, list: list.sort((x, y) => x.d - y.d) })).sort((x, y) => x.list[0].d - y.list[0].d);
-    lines.push('You can grab an object that is within 1 m of you, and you sit down by walking up to a free chair.');
+    lines.push('You can use (pick up, put down, press) whatever is within 1 m of you, and you sit down by walking up to a free chair.');
     lines.push('You can see:');
     for (const { label, list } of rows) {
       const shown = list.slice(0, 2).map(where).join('; also ');
@@ -417,9 +492,23 @@ export class Session {
     this.t += 1;
 
     let reason = '';
+    if (this.machine.state === 'brewing' && --this.machine.left <= 0) this.machine.state = 'ready';
+    if (this.spec.kind === 'station') {
+      const op = this.spec.op, d = this.goalDist(), m = this.machine, near = d <= STATION_RADIUS;
+      if (op === 'wait') {
+        if (m.state === 'ready' && d <= 1.6) { this.success = true; reason = 'the coffee is ready'; }
+        else if (m.state !== 'brewing') reason = 'the machine is not brewing';
+      } else if (interact > 0.5) {
+        if (!near) reason = `too far from your spot (${d.toFixed(2)} m, need <= ${STATION_RADIUS} m)`;
+        else if (op === 'place') { if (this.holding) { this.holding = false; m.state = 'cup'; this.success = true; reason = 'put the cup under the spout'; } else reason = 'you are not holding a cup'; }
+        else if (op === 'press') { if (m.state === 'cup') { m.state = 'brewing'; m.left = BREW_STEPS; this.success = true; reason = 'pressed the brew button'; } else reason = 'there is no cup under the spout'; }
+        else if (op === 'take') { if (m.state === 'ready') { this.holding = true; m.state = 'empty'; this.success = true; reason = 'took the full cup'; } else reason = 'the coffee is not ready yet'; }
+        else if (op === 'serve') { if (this.holding) { this.holding = false; this.served = true; this.success = true; reason = 'served the coffee'; } else reason = 'you are not holding a cup'; }
+      }
+    }
     if (interact > 0.5 && this.spec.kind === 'fetch_coffee' && !this.holding) {
       if (this.goalDist() <= COFFEE_RADIUS) { this.holding = true; reason = 'picked up the coffee cup'; }
-      else reason = `too far from the cup (${this.goalDist().toFixed(2)} m, need <= ${COFFEE_RADIUS} m)`;
+      else reason = `too far from the cup table (${this.goalDist().toFixed(2)} m from its edge, need <= ${COFFEE_RADIUS} m)`;
     }
     const dist = this.goalDist();
     let reward = -0.01 + 0.1 * (this.lastDist - dist);
@@ -447,14 +536,13 @@ export class Session {
       stageDone = this.plan[this.stage];
       this.stage += 1;
       this.success = false;
-      this.spec = resolveTask(this.world, this.plan[this.stage], { claimed: new Set([...this.world.peers()].filter(p => p !== this && p.spec.kind === 'sit').map(p => p.spec.target.id)), from: { x: this.x, z: this.z } });
+      this.spec = resolveTask(this.world, this.plan[this.stage], { claimed: new Set([...this.world.peers()].filter(p => p !== this && p.spec.kind === 'sit').map(p => p.spec.target.id)), from: { x: this.x, z: this.z }, slot: this.slot });
       this.lastDist = this.goalDist();
       reward += 0.5;
     }
     if (this.success) reward += 1;
     this.done = this.success || this.t >= this.maxSteps;
     if (this.done && !this.success) reason = reason || 'ran out of steps';
-    if (stageDone === 'fetch_coffee') reason = 'picked up the coffee, now looking for a seat';
     this.reason = reason;
     return {
       observation: this.observation(),
@@ -463,7 +551,8 @@ export class Session {
       info: {
         success: this.success, reason, position: [round(this.x), round(this.z)], heading: round(this.heading),
         y: round(this.world.groundHeight(this.x, this.z)), joints: this.pose(), collided: this.collided, holding: this.holding,
-        stage: this.stage, stages: this.plan.length, stage_done: stageDone,
+        stage: this.stage, stages: this.plan.length, stage_done: stageDone, stage_name: this.plan[this.stage],
+        bar: this.plan.some(s => s.startsWith('station:')) ? { slot: this.slot, machine: this.machine.state, left: this.machine.left, served: this.served } : null,
         distance: round(this.goalDist()), moved: round(moved), pose, pose_s: poseS, pose_offset: this.seated ? this.poseOffset : null, seat: this.seated ? this.spec.target.id : null,
       },
       path,

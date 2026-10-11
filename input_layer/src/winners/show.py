@@ -32,10 +32,7 @@ from winners.train.events import TrainingEventSink
 from winners.train.export import checkpoint_to_json, post_model
 
 TRAINED_NAME = "learned-bc"
-DEFAULT_ROUTINES = [
-    "talk", "lectern_wave", "plant_coffee", "coffee_lectern",
-    "armchair", "speaker_dance", "tripod_jump", "column_seat",
-]
+DEFAULT_ROUTINES = ["make_coffee"]
 
 
 class HotPolicy:

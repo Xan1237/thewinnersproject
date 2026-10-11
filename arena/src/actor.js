@@ -25,7 +25,8 @@ function makeTag(text, sub, color, kind = 'frontier') {
 }
 
 export class Actor {
-  constructor(template, scene, start, { color, model, cupFactory }) {
+  constructor(template, scene, start, { color, model, cupFactory, onBar }) {
+    this.onBar = onBar; this.barIdx = 0; this.slot = start.slot;
     this.id = start.session;
     this.model = model;
     this.color = color;
@@ -34,7 +35,7 @@ export class Actor {
     this.scene = scene;
     scene.add(this.g1.group);
     const [x, z] = start.position;
-    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false, pose: null, poseT0: 0 }];
+    this.keys = [{ t: 0, x, z, h: start.heading, phase: 0, blend: 0, y: start.y, holding: false, pose: null, poseT0: 0, bar: start.slot != null ? { slot: start.slot, machine: 'empty', left: 0, served: false } : undefined }];
     this.clock = 0;
     this.index = 0;
     this.cur = { ...this.keys[0] };
@@ -52,7 +53,8 @@ export class Actor {
       this.g1.group.add(this.halo, this.beam);
     }
     this.cupFactory = cupFactory;
-    this.cup = start.task === 'fetch_coffee' ? cupFactory() : null;
+    this.recipe = start.task === 'make_coffee';
+    this.cup = (start.task === 'fetch_coffee' || this.recipe) ? cupFactory() : null;
     if (this.cup) scene.add(this.cup);
     this.cupHome = this.cup?.position.clone();
     this.finished = null;
@@ -66,7 +68,7 @@ export class Actor {
     const last = this.keys[this.keys.length - 1];
     ev.path.forEach(([x, z, h, phase, blend], i) => {
       const lastSample = i === ev.path.length - 1;
-      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0 });
+      this.keys.push({ t: last.t + STEP_SAMPLE * (i + 1), x, z, h, phase, blend, y: ev.y, holding: lastSample ? ev.holding : last.holding, pose: null, poseT0: 0, bar: lastSample ? ev.bar ?? undefined : undefined });
     });
     // A pose (sit, jump, ...) starts when the robot has arrived; timed ones return to standing.
     const end = this.keys[this.keys.length - 1];
@@ -88,8 +90,9 @@ export class Actor {
     this.finished = null;
     this.idleFor = 0;
     this.g1.ring.material.color.set(this.color);
-    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, pose: null, poseT0: 0 });
-    if (ev.task === 'fetch_coffee' && !this.cup) { this.cup = this.cupFactory(); this.cupHome = this.cup.position.clone(); this.scene.add(this.cup); }
+    this.keys.push({ ...last, t: last.t + 0.05, x: ev.position[0], z: ev.position[1], h: ev.heading, y: ev.y, holding: false, pose: null, poseT0: 0, bar: ev.slot != null ? { slot: ev.slot, machine: 'empty', left: 0, served: false } : undefined });
+    this.recipe = ev.task === 'make_coffee';
+    if ((ev.task === 'fetch_coffee' || this.recipe) && !this.cup) { this.cup = this.cupFactory(); this.cupHome = this.cup.position.clone(); this.scene.add(this.cup); }
     this.tagLabels.push({ t: last.t, text: ev.task_description ? `new order` : '' });
   }
 
@@ -108,6 +111,7 @@ export class Actor {
     if (k.holding && !clip) Object.assign(joints, HOLD_POSE);
     g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0, clip?.root ? clip.root(poseT, k) : null);
     if (this.cup) {
+      this.cup.visible = k.holding || !this.recipe;
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
     }
@@ -118,6 +122,7 @@ export class Actor {
     const boost = this.lag > 2 ? Math.min(8, 1 + (this.lag - 2)) : 1;
     this.clock = Math.min(this.clock + dt * speed * boost, this.lastT);
     while (this.index < this.keys.length - 2 && this.keys[this.index + 1].t <= this.clock) this.index++;
+    for (; this.barIdx <= this.index; this.barIdx++) { const bar = this.keys[this.barIdx].bar; if (bar) this.onBar?.(bar.slot, bar); }
     const a = this.keys[this.index], b = this.keys[Math.min(this.index + 1, this.keys.length - 1)];
     const span = b.t - a.t;
     const f = span > 0 ? THREE.MathUtils.clamp((this.clock - a.t) / span, 0, 1) : 1;

@@ -67,4 +67,10 @@ Every episode is written to `arena/data/<model>/<NNNN>-<task>-<result>.json` (gi
 
 ## The show (`python -m winners.show`)
 
-Robots never stop: each frontier model works through little routines ("grab a coffee, then sit", "walk to the lectern and wave"), told only an instruction in plain words and what it can see. A spoken or typed order interrupts all of them. Scripted teachers bootstrap the data on the farm sim, a small network is trained on all winning runs, and a gold robot with the trained model joins the room; it is retrained as more winners arrive.
+One task, seven parts: **make a coffee and serve it.** Take a cup from the cup table, put it under your own spout on the coffee machine bar, press the brew button, wait until the coffee is ready, take the full cup, put it on your spot on the serving counter, cheer. The audience chairs were replaced by the two long tables (the rest of the room is unchanged).
+
+* Every frontier model gets one robot and only the instruction in plain words plus a list of what it can see. It decides what to do; the sim checks every part (right place, right action, cup really in the machine, brew time).
+* Every decision is recorded as labeled data: 12 sensor numbers in, 4 motor numbers out, a label in words (see "What is this data?" in the viewer).
+* Scripted teachers play the same task on a second sim so training has data from the start. After the first frontier wins a small network is trained on all winning runs; a gold robot with the trained model joins and is retrained as more winners arrive.
+* A spoken or typed order interrupts everyone; the robots hold for 12 s and go back to making coffee.
+* The sim is kinematic (no physics engine): it checks distances and states, not forces. It shows the pipeline, not real manipulation.

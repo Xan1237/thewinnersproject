@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Session, World, ACTION_SPEC } from './core.js';
+import { Session, World, ACTION_SPEC, resolveTask } from './core.js';
 import { createServer } from './server.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -102,31 +102,49 @@ test('HTTP API: session lifecycle, SSE, validation', async () => {
   server.closeAllConnections?.();
 });
 
-test('talk scenario: blind observation, coffee first, then any free seat', () => {
-  let ok = 0, sawTarget = false, stages = 0;
+test('make_coffee: blind, seven parts, every part needs the right action at the right place', () => {
+  const teacher = s => {
+    const [, , , gf, gr, gd, , , , can, wait] = s.observation().state;
+    if (wait) return [0, 0, 0, 0];
+    if (can && gd < 0.9) return [0, 0, 0, 1];
+    const ang = Math.atan2(-gr, gf);
+    return [Math.abs(ang) < 0.6 ? Math.min(1, gd) : 0, 0, -Math.max(-1, Math.min(1, -ang * 1.5)), 0];
+  };
+  let ok = 0, sawTarget = false;
+  const parts = [];
   for (let seed = 0; seed < 5; seed++) {
-    const s = new Session(world, { id: 't', task: 'talk', seed, maxSteps: 140 });
-    assert.match(s.observation().text, /Your instruction: "You just arrived for the talk/);
-    assert.match(s.observation().text, /coffee cup: nearest/);
+    const s = new Session(world, { id: 't', task: 'make_coffee', seed, maxSteps: 200 });
+    assert.match(s.observation().text, /Your instruction: "Make yourself a coffee/);
+    assert.match(s.observation().text, /your coffee spout on the coffee machine bar: nearest/);
     while (!s.done) {
-      const r = s.step(greedy(s));
+      const r = s.step(teacher(s));
       if (/Target "/.test(r.observation.text)) sawTarget = true;
-      if (r.info.stage_done) stages++;
+      if (r.info.stage_done) parts.push(r.info.stage_done);
     }
-    if (s.success && s.seated) ok++;
+    if (s.success) ok++;
   }
   assert.equal(sawTarget, false, 'the target must not be handed to blind robots');
-  assert.ok(stages >= 4, `coffee stage passed ${stages}/5`);
-  assert.ok(ok >= 4, `talk solved ${ok}/5`);
+  assert.equal(ok, 5);
+  assert.equal(parts.length, 30);
 });
 
-test('two robots never end up on the same chair', () => {
-  const a = new Session(world, { id: 'a', task: 'sit', seed: 3, maxSteps: 120 });
-  const b = new Session(world, { id: 'b', task: 'sit', seed: 4, maxSteps: 120 });
-  world.peers = () => [a, b];
-  try {
-    while (!a.done || !b.done) { if (!a.done) a.step(greedy(a)); if (!b.done) b.step(greedy(b)); }
-    assert.ok(a.seated && b.seated);
-    assert.notEqual(a.spec.target.id, b.spec.target.id);
-  } finally { world.peers = () => []; }
+test('make_coffee: pressing without a cup, or too far away, does nothing', () => {
+  const s = new Session(world, { id: 'u', task: 'make_coffee', seed: 2, maxSteps: 200 });
+  const r = s.step([0, 0, 0, 1]);           // far from the cup: nothing happens
+  assert.equal(s.holding, false);
+  assert.match(r.info.reason, /too far/);
+  s.stage = 2; s.spec = resolveTask(world, 'station:press', { slot: s.slot });
+  s.x = s.spec.target.x; s.z = s.spec.target.z + 0.5;
+  const r2 = s.step([0, 0, 0, 1]);
+  assert.match(r2.info.reason, /no cup under the spout/);
 });
+
+test('every robot gets its own spot on the coffee line', () => {
+  const a = new Session(world, { id: 'a', task: 'make_coffee', seed: 1 });
+  world.peers = () => [a];
+  const b = new Session(world, { id: 'b', task: 'make_coffee', seed: 2 });
+  world.peers = () => [a, b];
+  assert.notEqual(a.slot, b.slot);
+  world.peers = () => [];
+});
+

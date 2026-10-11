@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+import { PARTS, STATE } from './recipe.js';
 import { kindOf, KIND_LABEL } from './kinds.js';
 import { Insight } from './insight.js';
 export const TRAINED_COLOR = '#ffcc33';
@@ -66,7 +67,7 @@ export class Panel {
       const tr = this.trails.get(ev.session); if (tr) for (const p of ev.path || [ev.position]) tr.pts.push([p[0], p[1]]);
       this.scheduleMinimap();
       this.addStep(ev);
-      if (ev.stage_done) this.addRow(ev.model, `<div class="label">☕ Part ${ev.stage} done: got the coffee</div><div class="act">now looking for a free seat</div>`, 'ok');
+      if (ev.stage_done) this.addRow(ev.model, `<div class="label">✔ Part ${ev.stage} done: ${esc(PARTS[ev.stage_done] ?? ev.stage_done)}</div>`, 'ok');
       this.renderBoard();
     } else if (ev.type === 'session_finished') {
       const st = this.stats(ev.model);
@@ -85,12 +86,15 @@ export class Panel {
   }
 
   addStep(ev) {
+    this.lastStep = ev;
+    const part = ev.stages > 1 ? `<div class="part">part ${ev.stage + 1}/${ev.stages} · ${esc(PARTS[ev.stage_name] ?? ev.stage_name ?? '')}</div>` : '';
+    const sensed = (ev.state || []).map((v, i) => `<span>${esc(STATE[i]?.[0] ?? i)}</span><span>${typeof v === 'number' ? v.toFixed(2) : v}</span>`).join('');
     const a = ev.action || [];
     const act = `fwd ${(a[0] ?? 0).toFixed(2)} · right ${(a[1] ?? 0).toFixed(2)} · turn ${(a[2] ?? 0).toFixed(2)}${(a[3] ?? 0) > 0.5 ? ' · GRAB' : ''}`;
     const joints = KEY_JOINTS.filter(k => ev.joints && k in ev.joints).map(k => `<span>${esc(k.replace('_joint', ''))}</span><span>${ev.joints[k].toFixed(3)}</span>`).join('');
     this.addRow(ev.model,
-      `<div class="label">${esc(ev.label || '(no label)')}</div>${this.detailHtml(ev.detail)}<div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +
-      `<details><summary>motor data</summary><div class="joints">${joints}</div></details>`, '', ev.t);
+      `<div class="label">${esc(ev.label || '(no label)')}</div>${part}${this.detailHtml(ev.detail)}<div class="act">t=${ev.t} · ${act} · dist ${ev.distance?.toFixed?.(2) ?? '?'} m · r ${ev.reward?.toFixed?.(2)}</div>` +
+      `<details><summary>what it sensed (numbers)</summary><div class="joints">${sensed}</div></details><details><summary>motor data</summary><div class="joints">${joints}</div></details>`, '', ev.t);
   }
 
   /** Extra decision context from a model: the orchestrator's plan and the decision model's odds. */
