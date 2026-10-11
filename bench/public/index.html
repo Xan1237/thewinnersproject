@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Winnersbench</title>
+    <link rel="icon" href="assets/mark.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="#" aria-label="Winnersbench">
+        <img src="assets/mark.svg" alt="" />
+      </a>
+      <div class="status" id="status" role="status" aria-live="off"><i></i><span>Connecting…</span></div>
+    </header>
+
+    <main>
+      <div class="mast">
+        <h1>Winnersbench</h1>
+        <p class="lede">Send a Unitree G1 across the room to the armchair or the lectern, or have it pick up the coffee. Every result is a real episode from the arena.</p>
+      </div>
+
+      <section id="view-plot" class="pane is-on" data-pane="plot">
+        <div id="plot" class="plot"></div>
+        <p class="cost-plot-note" id="plot-note">Score shown from 40–100; cost uses a logarithmic scale. Dots move as episodes land.</p>
+        <div class="training" id="training" hidden>
+          <div class="training-head"><span id="training-title"></span><span id="training-meta"></span></div>
+          <svg id="training-chart" viewBox="0 0 400 40" preserveAspectRatio="none" aria-hidden="true"><path id="training-loss" d="" /><path id="training-val" d="" /></svg>
+        </div>
+      </section>
+
+      <section id="view-board" class="pane" data-pane="board" hidden>
+        <table class="board">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Score</th>
+              <th>Success</th>
+              <th>Cost / episode</th>
+              <th>Episodes</th>
+            </tr>
+          </thead>
+          <tbody id="board-body"></tbody>
+        </table>
+      </section>
+
+      <section id="view-docs" class="pane" data-pane="docs" hidden>
+        <article class="docs">
+          <p>Winnersbench compares models that drive a simulated Unitree G1 through short tasks. Every episode is a real attempt recorded by the arena; results stream into this page as they arrive.</p>
+          <h2>The task</h2>
+          <blockquote>Walk to the armchair or the lectern and stop within 1.2 m, or walk to the table, pick up the coffee cup and hold it.</blockquote>
+          <p>Each model attempts the same tasks with the same 60-step budget per episode. The sim records the robot's full physics state and every decision, with its latency and cost.</p>
+          <h2>How an episode is scored</h2>
+          <table class="docs-table">
+            <thead><tr><th>Outcome</th><th>Score</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr><td>Failed</td><td>0</td><td>The task was not completed before the episode ended.</td></tr>
+              <tr><td>Succeeded</td><td>60–100</td><td>60 for completing the task, plus up to 40 for finishing early: 40 × (1 − steps / 60).</td></tr>
+            </tbody>
+          </table>
+          <p>A model's score is the mean over its episodes, so a dot starts rough and settles as evidence accumulates. Pale dots have fewer than six episodes. Success is the share of completed episodes.</p>
+          <h2>Cost</h2>
+          <p>Cost is the provider spend recorded on every step (orchestrator and decision calls), averaged per episode and plotted on a log scale. Scripted baselines call no API and sit in the free column; they show what the robot manages with hand-written logic.</p>
+          <h2>Live data</h2>
+          <ul>
+            <li><span>Replay</span><div>Recorded episodes from <code>input_layer/runs</code> are replayed one at a time, in an interleaved order so every model advances together. The loop restarts after a short pause.</div></li>
+            <li><span>Live</span><div>When new episodes land in a run file, the board settles to the full recorded history and streams only the new results.</div></li>
+            <li><span>Arena</span><div>When the sim server is running, robots that are walking pulse on the plot and training progress of the free policy appears under it.</div></li>
+          </ul>
+          <p>This is a local benchmark of one setup, not a general ranking of model capability.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <nav class="views" aria-label="Primary views">
+        <button class="view-btn is-on" type="button" data-view="plot" aria-current="page">
+          <svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6.5" cy="16.5" r="1.6" fill="currentColor" />
+            <circle cx="11.2" cy="10.2" r="1.6" fill="currentColor" />
+            <circle cx="16.8" cy="13.4" r="1.6" fill="currentColor" />
+            <circle cx="18.6" cy="6.8" r="1.6" fill="currentColor" />
+          </svg>
+          <span class="view-label">Plot</span>
+        </button>
+        <button class="view-btn" type="button" data-view="board">
+          <svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M5 8h14M5 12h14M5 16h10" />
+          </svg>
+          <span class="view-label">Leaderboard</span>
+        </button>
+        <button class="view-btn" type="button" data-view="docs">
+          <svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M8 4.8h6.2L17.2 8v11.2H8z" />
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M10 11.2h4.2M10 14.4h3.1" />
+          </svg>
+          <span class="view-label">Docs</span>
+        </button>
+      </nav>
+    </footer>
+
+    <dialog class="assessment" id="assessment" aria-labelledby="assessment-title">
+      <div class="assessment-toolbar">
+        <span>Model results</span>
+        <button type="button" class="close-button" id="close-assessment" aria-label="Close">Close <span aria-hidden="true">×</span></button>
+      </div>
+      <div id="assessment-content"></div>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
