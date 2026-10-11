@@ -89,3 +89,18 @@ test('HTTP: command + task endpoints', async () => {
     assert.equal(bad.status, 400);
   } finally { server.close(); }
 });
+
+import { transcribe } from './voice.js';
+
+test('transcribe sends base64 wav to the MAI model and returns the text', async () => {
+  let seen;
+  const fetchImpl = async (url, init) => { seen = { url, body: JSON.parse(init.body), auth: init.headers.authorization }; return { ok: true, json: async () => ({ text: ' Everybody sit down. ', usage: { cost: 0.0003 } }) }; };
+  const r = await transcribe(Buffer.from('RIFFxxxx'), 'audio/wav', { apiKey: 'k', fetchImpl });
+  assert.equal(r.text, 'Everybody sit down.');
+  assert.equal(seen.body.model, 'microsoft/mai-transcribe-2');
+  assert.equal(seen.body.input_audio.format, 'wav');
+  assert.equal(Buffer.from(seen.body.input_audio.data, 'base64').toString(), 'RIFFxxxx');
+  assert.match(seen.url, /audio\/transcriptions$/);
+  await assert.rejects(transcribe(Buffer.from('x'), 'audio/webm', { apiKey: 'k', fetchImpl }), e => e.status === 415);
+  await assert.rejects(transcribe(Buffer.from('x'), 'audio/wav', { apiKey: '', fetchImpl }), e => e.status === 501);
+});

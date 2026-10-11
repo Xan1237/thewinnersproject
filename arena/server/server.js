@@ -178,7 +178,7 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
           const before = s.observation();
           const r = s.step(body.action);
           broadcast({
-            type: 'step', session: s.id, model, task: s.task, t: s.t, state: before.state, action: body.action.map(Number), label, detail, pose: r.info.pose ?? (typeof body.pose === 'string' ? body.pose.slice(0, 32) : null), pose_s: r.info.pose_s, seat: r.info.seat,
+            type: 'step', session: s.id, model, task: s.task, t: s.t, state: before.state, action: body.action.map(Number), label, detail, pose: r.info.pose ?? (typeof body.pose === 'string' ? body.pose.slice(0, 32) : null), pose_s: r.info.pose_s, pose_offset: r.info.pose_offset, seat: r.info.seat,
             position: r.info.position, heading: r.info.heading, y: r.info.y, path: r.path, joints: r.info.joints,
             holding: r.info.holding, collided: r.info.collided, distance: r.info.distance, reward: r.reward, done: r.done,
             success: r.info.success, reason: r.info.reason,

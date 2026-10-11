@@ -15,7 +15,10 @@ export function setupVoice() {
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(m => MediaRecorder.isTypeSupported(m));
     rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-    rec.onstop = () => send(new Blob(chunks, { type: rec.mimeType }));
+    rec.onstop = async () => {
+      try { send(await toWav(new Blob(chunks, { type: rec.mimeType }))); }
+      catch (e) { say(`Could not read the recording: ${e.message}`, 'bad'); }
+    };
     rec.start();
     btn.classList.add('live'); status.textContent = 'Listening… click to send'; say('');
     audioCtx = new AudioContext();
@@ -42,7 +45,7 @@ export function setupVoice() {
   async function send(blob) {
     status.textContent = 'Understanding…'; btn.disabled = true;
     try {
-      const r = await fetch('/sim/voice', { method: 'POST', headers: { 'content-type': blob.type || 'audio/webm' }, body: blob });
+      const r = await fetch('/sim/voice', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: blob });
       show(await r.json(), r.ok);
     } catch (e) { say(`Could not reach the sim: ${e.message}`, 'bad'); }
     btn.disabled = false; status.textContent = 'Click to give an order';
@@ -74,4 +77,23 @@ export function setupVoice() {
     if (ev.type === 'heard' && ev.text) say(`“${ev.text}”`, '');
     if (ev.type === 'command') show(ev, true);
   };
+}
+
+/** Browser recordings are WebM/MP4; the speech model wants WAV, so decode and re-encode as 16 kHz mono PCM. */
+async function toWav(blob) {
+  const ctx = new AudioContext();
+  const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+  ctx.close();
+  const rate = 16000, length = Math.max(1, Math.ceil(decoded.duration * rate));
+  const off = new OfflineAudioContext(1, length, rate);
+  const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const str = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); out.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVEfmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+  str(36, 'data'); out.setUint32(40, pcm.length * 2, true);
+  pcm.forEach((v, i) => out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
+  return new Blob([out], { type: 'audio/wav' });
 }

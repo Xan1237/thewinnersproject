@@ -73,6 +73,7 @@ export class Actor {
     if (ev.pose) {
       end.pose = ev.pose;
       end.poseT0 = last.pose === ev.pose ? last.poseT0 : end.t;
+      end.poseArg = ev.pose_offset ?? last.poseArg ?? 0;
       if (ev.pose_s > 0) {
         this.keys.push({ ...end, t: end.t + ev.pose_s });
         this.keys.push({ ...end, t: end.t + ev.pose_s + 0.02, pose: null });
@@ -105,7 +106,7 @@ export class Actor {
     const poseT = Math.max(this.clock - (k.poseT0 ?? 0), 0);
     const joints = clip ? clip.joints(poseT, k) : gaitJoints(k.phase, k.blend);
     if (k.holding && !clip) Object.assign(joints, HOLD_POSE);
-    g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0);
+    g.setJoints(joints, clip?.pelvisDrop ? clip.pelvisDrop(poseT, k) : 0, clip?.root ? clip.root(poseT, k) : null);
     if (this.cup) {
       if (k.holding) { g.handWorld(this.cup.position); this.cup.position.y -= 0.045; }
       else this.cup.position.copy(this.cupHome);
@@ -124,7 +125,7 @@ export class Actor {
     const k = {
       x: THREE.MathUtils.lerp(a.x, b.x, f), z: THREE.MathUtils.lerp(a.z, b.z, f), h: lerpAngle(a.h, b.h, f),
       phase: THREE.MathUtils.lerp(a.phase, b.phase, f), blend: THREE.MathUtils.lerp(a.blend, b.blend, f), y: b.y,
-      holding: f >= 1 ? b.holding : a.holding, pose: f >= 1 ? b.pose : a.pose, poseT0: f >= 1 ? b.poseT0 : a.poseT0,
+      holding: f >= 1 ? b.holding : a.holding, pose: f >= 1 ? b.pose : a.pose, poseT0: f >= 1 ? b.poseT0 : a.poseT0, poseArg: f >= 1 ? b.poseArg : a.poseArg,
     };
     if (idle) { k.blend = THREE.MathUtils.damp(this.cur.blend, 0, 6, dt); k.phase = this.cur.phase; }
     this.cur = k;

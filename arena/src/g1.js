@@ -46,7 +46,8 @@ export class G1 {
     this.group.add(this.ring);
   }
 
-  setJoints(angles, pelvisDrop = 0) {
+  /** angles: joint name -> rad. pelvisDrop: metres (negative lifts). root: optional {pos:[x,y], quat:[x,y,z,w]} pelvis motion from a captured clip. */
+  setJoints(angles, pelvisDrop = 0, root = null) {
     for (const [name, v] of this.joints) {
       const a = angles[name] ?? 0;
       const c = Math.min(Math.max(a, v.min), v.max);
@@ -54,6 +55,11 @@ export class G1 {
     }
     this.pelvis.position.copy(this.pelvisRest);
     this.pelvis.quaternion.copy(this.pelvisRestQ);
+    if (root) {
+      this.pelvis.position.x += root.pos[0];
+      this.pelvis.position.y += root.pos[1];
+      this.pelvis.quaternion.premultiply(this.q.set(...root.quat));
+    }
     this.group.updateMatrixWorld(true);
     let lowest = Infinity;
     for (const foot of this.feet) { this.box.setFromObject(foot); lowest = Math.min(lowest, this.box.min.y); }

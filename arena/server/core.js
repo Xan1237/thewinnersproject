@@ -10,7 +10,9 @@ export const GOTO_RADIUS = 1.2;
 export const COFFEE_RADIUS = 0.9;
 export const SIT_RADIUS = 0.95;
 /** Emotes: a one-step task that ends with the robot playing an animation clip (see arena/src/animations.js). */
-export const EMOTES = { jump: 1.4, wave: 2.6, dance: 4.0, cheer: 2.4 };
+export const EMOTES = { jump: 3.0, wave: 4.0, dance: 4.0, cheer: 2.4 };
+/** How far in front of a chair's centre a robot stands when it sits down (its pelvis moves back onto the seat). */
+export const seatStandOffset = seat => Math.max(0.5, Math.max(seat.sx, seat.sz) / 2 + ROBOT_RADIUS + 0.04);
 
 export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
@@ -357,7 +359,8 @@ export class Session {
     if (this.spec.kind === 'sit' && dist <= SIT_RADIUS) {
       const seat = this.spec.target;
       this.success = true; this.seated = true; reason = `sat down on the ${seat.name}`;
-      this.x = seat.x; this.z = seat.z; this.heading = seat.heading; this.vx = this.vz = 0; this.blend = 0;
+      const off = seatStandOffset(seat);
+      this.x = seat.x + Math.sin(seat.heading) * off; this.z = seat.z + Math.cos(seat.heading) * off; this.heading = seat.heading; this.vx = this.vz = 0; this.blend = 0; this.poseOffset = off;
       path.push([round(this.x), round(this.z), round(this.heading), round(this.phase, 3), 0]);
     }
     if (this.spec.kind === 'emote') { this.success = true; pose = this.spec.emote; poseS = EMOTES[pose]; reason = `played the ${pose} animation`; }
@@ -374,7 +377,7 @@ export class Session {
       info: {
         success: this.success, reason, position: [round(this.x), round(this.z)], heading: round(this.heading),
         y: round(this.world.groundHeight(this.x, this.z)), joints: this.pose(), collided: this.collided, holding: this.holding,
-        distance: round(dist), moved: round(moved), pose, pose_s: poseS, seat: this.seated ? this.spec.target.id : null,
+        distance: round(dist), moved: round(moved), pose, pose_s: poseS, pose_offset: this.seated ? this.poseOffset : null, seat: this.seated ? this.spec.target.id : null,
       },
       path,
     };

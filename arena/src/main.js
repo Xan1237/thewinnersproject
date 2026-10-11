@@ -8,6 +8,7 @@ import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
 import { setupVoice } from './voice.js';
 import { setupDataView } from './dataview.js';
+import { loadGeneratedClips } from './animations.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -71,6 +72,7 @@ async function loadRoom() {
   const [gltf, man] = await Promise.all([loader.loadAsync('/room/room.glb'), fetch('/room/manifest.json').then(r => r.json())]);
   manifest = man;
   const slide = new THREE.TextureLoader().load('/room/slide.jpg'); slide.colorSpace = THREE.SRGBColorSpace;
+  slide.flipY = false;  // the quad's UVs follow the glTF convention (v = 0 at the top)
   gltf.scene.traverse(n => {
     if (n.name === 'Ceiling' || n.name === 'WallSouth') n.visible = false;  // keep the view into the room open
     if (n.isMesh) {
@@ -107,6 +109,7 @@ const pending = [];
 
 const onVoiceEvent = setupVoice();
 setupDataView();
+loadGeneratedClips();
 function handle(ev) {
   panel.onEvent(ev);
   onVoiceEvent(ev);

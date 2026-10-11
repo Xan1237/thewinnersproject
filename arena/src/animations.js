@@ -47,6 +47,8 @@ registerClip('sit', {
       waist_pitch_joint: 0.08 * s,
     });
   },
+  // The pelvis moves back onto the seat (the robot stands `poseArg` metres in front of the chair centre).
+  root: (t, k) => ({ pos: [-(k.poseArg || 0.5) * smooth(t / 0.9), 0], quat: [0, 0, 0, 1] }),
 });
 
 // Crouch, spring up with the arms swinging overhead, tuck in the air, land softly. 1.4 s.
@@ -119,3 +121,44 @@ registerClip('dance', {
     });
   },
 });
+
+/**
+ * Clips generated with NVIDIA Kimodo (G1 text-to-motion), packed by tools/import-clips.py into
+ * public/animations/. They replace the built-in clips of the same name once loaded; if the files
+ * are missing the built-ins keep working.
+ */
+function frameClip(data, { rootScale } = {}) {
+  const { fps, joints: names, frames, root, lift } = data, last = frames.length - 1;
+  const at = t => { const f = Math.min(Math.max(t * fps, 0), last), i = Math.floor(f); return [i, Math.min(i + 1, last), f - i]; };
+  const xy = root[last];
+  const endDist = Math.hypot(xy[0], xy[1]);
+  return {
+    duration: data.duration,
+    joints(t) {
+      const [i, j, u] = at(t), out = { ...STAND };
+      names.forEach((n, c) => { out[n] = lerp(frames[i][c], frames[j][c], u); });
+      return out;
+    },
+    pelvisDrop(t) { const [i, j, u] = at(t); return -lerp(lift[i], lift[j], u); },
+    root(t, k) {
+      const [i, j, u] = at(t), a = root[i], b = root[j];
+      const s = rootScale && endDist > 0.05 ? rootScale(k) / endDist : 1;
+      const q = [3, 4, 5, 6].map(c => lerp(a[c], b[c], u)), n = Math.hypot(...q) || 1;
+      return { pos: [lerp(a[0], b[0], u) * s, lerp(a[1], b[1], u) * s], quat: q.map(v => v / n) };
+    },
+  };
+}
+
+export async function loadGeneratedClips(base = '/animations') {
+  try {
+    const index = await (await fetch(`${base}/index.json`)).json();
+    for (const [name, file] of Object.entries(index)) {
+      const data = await (await fetch(`${base}/${file}`)).json();
+      registerClip(name, frameClip(data, name === 'sit' ? { rootScale: k => k.poseArg || 0.5 } : {}));
+    }
+    return Object.keys(index);
+  } catch (e) {
+    console.warn('generated animation clips not loaded, using the built-in ones:', e.message);
+    return [];
+  }
+}

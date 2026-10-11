@@ -55,4 +55,12 @@ Do not use `gltf-transform optimize`: it joins meshes and drops the node names t
 
 ## Animations
 
-Hand-made clips (sitting on a chair, ...) plug in through `src/animations.js`: `registerClip(name, {joints, pelvisDrop})`, then send `pose: "<name>"` on a step event. Without a registered clip the robot keeps standing, so it never vanishes while an animation is missing.
+`sit`, `jump` and `wave` are motion-captured-style clips generated with NVIDIA Kimodo (`nvidia/Kimodo-G1-RP-v1`, text-to-motion for the Unitree G1; NVIDIA Open Model License). `tools/import-clips.py` packs them into `public/animations/`; `dance` and `cheer` are small procedural clips. Your own clips plug in through `src/animations.js`: `registerClip(name, {joints, pelvisDrop, root})`, then send `pose: "<name>"` on a step event. A missing clip never makes a robot disappear: it keeps standing.
+
+## Voice orders
+
+The mic button records, the browser converts to 16 kHz WAV, and the sim server calls `microsoft/mai-transcribe-2` on OpenRouter (it rejects WebM/M4A, WAV and MP3 work). Start the sim server with `OPENROUTER_API_KEY` exported or speech returns a clear "not configured" error; typing an order (press `/`) always works. One order goes to every agent (`python -m winners.live`).
+
+## Labeled data
+
+Every episode is written to `arena/data/<model>/<NNNN>-<task>-<result>.json` (git-ignored; `ARENA_DATA_DIR` overrides): per step the state, the text the model saw, its action, label, plan, Jev odds, latency and cost. The "Labeled data" button in the viewer lists the folders and downloads one episode, one model as `.jsonl`, or everything as one `.json`. The trained policy's weights are saved next to it as `model.json`.
