@@ -52,6 +52,7 @@ def run_pipeline(cfg: dict, out: Path) -> dict:
 
     policies = [build_policy(p) for p in cfg["policies"]]
     episodes = []
+    sink.send(phase="collect", total=len(policies) * len(tasks) * run.get("episodes", 10), models=len(policies))
     for task in tasks:
         factory = build_env_factory({**env_cfg, "task": task})
         episodes += run_arena(
@@ -74,6 +75,7 @@ def run_pipeline(cfg: dict, out: Path) -> dict:
     # not flooded. The panel reports how many episodes came from where.
     extra = [build_policy(p) for p in train.get("extra_policies", [])]
     if extra:
+        sink.send(phase="topup", total=len(extra) * len(tasks) * train.get("extra_episodes", 25))
         farm_env = {**env_cfg, "base_url": train.get("extra_base_url", base_url)}
         for task in tasks:
             episodes += run_arena(

@@ -134,3 +134,19 @@ canvas#netviz { width: 100%; background: #10151d; border: 1px solid var(--line);
 .dep span { color: var(--mute); }
 .dtable { font-size: 11px; margin-top: 8px; } .dtable td, .dtable th { padding: 4px 6px; vertical-align: top; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+
+#dataset { border: 1px solid var(--line); border-radius: 10px; background: #10151d; padding: 8px 10px; }
+.dtotals { display: flex; gap: 8px; margin-bottom: 8px; }
+.dtotals > div { flex: 1; text-align: center; padding: 6px 4px; border-radius: 8px; background: #151b26; }
+.dtotals b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: #ffe08a; }
+.dtotals span { font-size: 10px; color: var(--mute); }
+.drow { display: grid; grid-template-columns: 104px 1fr 38px; gap: 8px; align-items: center; height: 20px; font-size: 11.5px; }
+.drow .dn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drow.trained .dn { color: #ffcc33; }
+.dbar { display: flex; height: 9px; background: #1a2230; border-radius: 5px; overflow: hidden; }
+.dbar i, .dkey i { display: block; height: 100%; transition: width .3s; }
+.dbar .w, .dkey .w { background: var(--good); } .dbar .f, .dkey .f { background: #5b3440; } .dbar .l, .dkey .l { background: #ffcc33; animation: pulse 1s infinite alternate; }
+.dc { text-align: right; color: var(--mute); font-variant-numeric: tabular-nums; }
+.dkey { margin-top: 6px; font-size: 10.5px; color: var(--mute); display: flex; gap: 6px; align-items: center; }
+.dkey i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 6px; }
+@keyframes pulse { from { opacity: .45 } to { opacity: 1 } }

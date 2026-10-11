@@ -14,6 +14,7 @@ function objectList(world) {
 export function parseWithRules(text, world) {
   const t = text.toLowerCase();
   for (const e of Object.keys(EMOTES)) if (new RegExp(`\\b${e}`).test(t)) return { task: e, say: `Everyone: ${e}!` };
+  if (/\b(coffee|cup)\b/.test(t) && /\b(sit|seat|chair)\b/.test(t)) return { task: 'talk', say: 'Everyone: grab a coffee, then find a seat.' };
   if (/\b(coffee|cup)\b/.test(t)) return { task: 'fetch_coffee', say: 'Everyone: fetch the coffee.' };
   const named = world.objects
     .filter(o => o.kind !== 'folding' && o.kind !== 'platform' && o.id !== 'coffee_cup')

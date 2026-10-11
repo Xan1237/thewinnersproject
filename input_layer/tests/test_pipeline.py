@@ -24,7 +24,7 @@ def test_pipeline_with_scripted_top_up(tmp_path):
         result = run_pipeline(cfg, tmp_path)
         assert result["eval"]["goto:armchair_blue"]["success_rate"] >= 0.6
         phases = [e.get("phase") for e in sim.events if e.get("type") == "training"]
-        assert phases[0] == "start" and phases[-1] == "done"
+        assert phases[0] == "collect" and "start" in phases and phases[-1] == "done"
         assert phases.count("epoch") == 60 and phases.count("eval") == 1
         start = next(e for e in sim.events if e.get("phase") == "start")
         assert start["from_llm"] > 0 and start["from_scripted"] > 0

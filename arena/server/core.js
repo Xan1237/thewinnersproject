@@ -7,7 +7,7 @@ export const ROBOT_RADIUS = 0.18;
 export const WALK_SPEED = 1.5;
 export const TURN_RATE = 1.5;     // rad/s at turn = 1
 export const GOTO_RADIUS = 1.2;
-export const COFFEE_RADIUS = 0.9;
+export const COFFEE_RADIUS = 1.0;
 export const SIT_RADIUS = 0.95;
 /** Emotes: a one-step task that ends with the robot playing an animation clip (see arena/src/animations.js). */
 export const EMOTES = { jump: 3.0, wave: 4.0, dance: 4.0, cheer: 2.4 };
@@ -18,7 +18,7 @@ export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
   low: [-1, -1, -1, 0],
   high: [1, 1, 1, 1],
-  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs the coffee cup when within 0.9 m',
+  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs the coffee cup when within 1.0 m',
 };
 export const OBSERVATION_SPEC = {
   names: ['x', 'z', 'heading', 'goal_forward', 'goal_right', 'goal_dist', 'holding', 'steps_left_frac'],
@@ -195,7 +195,7 @@ export function labelOf(o) {
   return o.name;
 }
 
-export const TASK_HELP = 'goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle';
+export const TASK_HELP = 'talk (coffee, then a free seat) | goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle';
 
 /** `ctx.claimed`: seat ids other robots already sit in or walk to. `ctx.from`: where the robot is now. */
 export function resolveTask(world, task, ctx = {}) {
@@ -207,7 +207,7 @@ export function resolveTask(world, task, ctx = {}) {
   if (task === 'fetch_coffee') {
     const cup = world.cup;
     if (!cup) throw new Error('manifest has no coffee_cup');
-    return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the table on the right side of the room, pick up the coffee cup (set interact > 0.5 within 0.9 m of the cup) and hold it.' };
+    return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the table on the right side of the room, pick up the coffee cup (set interact > 0.5 within 1.0 m of the cup) and hold it.' };
   }
   if (EMOTES[task]) {
     const at = ctx.from ?? { x: 0, z: 0 };
@@ -223,7 +223,7 @@ export function resolveTask(world, task, ctx = {}) {
       // Nearest free chair by walking distance (chairs walled off by the table are skipped).
       const grid = world.walkGrid(at.x, at.z), ref = seat ?? at;
       // A straight, unobstructed walk is preferred (robots are not good at going around furniture).
-      const cost = s => world.walkDistanceTo(grid, s, SIT_RADIUS) + 0.3 * Math.hypot(s.x - ref.x, s.z - ref.z) + (world.lineClear(at.x, at.z, s.x, s.z) ? 0 : 8);
+      const cost = s => world.walkDistanceTo(grid, s, SIT_RADIUS) + 0.3 * Math.hypot(s.x - ref.x, s.z - ref.z) + (world.lineClear(at.x, at.z, s.x, s.z) ? 0 : 8) + (s.id.startsWith('table_chair') ? 6 : 0);
       seat = world.seats.filter(s => !claimed.has(s.id)).map(s => ({ s, c: cost(s) })).filter(e => Number.isFinite(e.c)).sort((a, b) => a.c - b.c)[0]?.s;
       if (!seat) throw new Error('no free chair left');
     }
@@ -358,6 +358,7 @@ export class Session {
       return `${d.toFixed(1)} m away, ${dir}`;
     };
     const rows = [...groups.entries()].map(([label, list]) => ({ label, list: list.sort((x, y) => x.d - y.d) })).sort((x, y) => x.list[0].d - y.list[0].d);
+    lines.push('You can grab an object that is within 1 m of you, and you sit down by walking up to a free chair.');
     lines.push('You can see:');
     for (const { label, list } of rows) {
       const shown = list.slice(0, 2).map(where).join('; also ');

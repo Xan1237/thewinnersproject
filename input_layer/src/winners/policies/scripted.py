@@ -63,7 +63,7 @@ class GoalSeekPolicy:
         self, obs: Observation, task: str, action_spec: ActionSpec, history: list[Step]
     ) -> Action:
         _x, _z, _heading, fwd, right, dist, _holding, _frac = obs.state[:8]
-        if _is_pickup(task) and dist <= self.interact_dist:
+        if _is_pickup(task) and _holding < 0.5 and dist <= self.interact_dist:
             return Action(values=[0.0, 0.0, 0.0, 1.0], label="grab the coffee")
         angle = math.atan2(right, fwd)  # 0 = dead ahead, +pi/2 = goal on the right
         turn = -self.turn_gain * angle

@@ -138,11 +138,14 @@ class G1SimEnv:
             raise G1SimError("no session")
         return self._observation(self._request("GET", f"/sim/sessions/{self.session_id}")["observation"])
 
-    def retask(self, task: str) -> Observation:
-        """Give the live session a new task where the robot stands (voice orders)."""
+    def retask(self, task: str, instruction: str | None = None) -> Observation:
+        """Give the live session a new task where the robot stands (voice orders).
+
+        `instruction`: the operator's own words. When given, the robot is told only those words and
+        what it can see, and has to work out for itself which object is meant."""
         if self.session_id is None:
             raise G1SimError("retask() called before reset()")
-        data = self._request("POST", f"/sim/sessions/{self.session_id}/task", {"task": task})
+        data = self._request("POST", f"/sim/sessions/{self.session_id}/task", {"task": task, **({"instruction": instruction} if instruction else {})})
         self.task = task
         self.task_description = str(data.get("task_description") or task)
         return self._observation(data["observation"])

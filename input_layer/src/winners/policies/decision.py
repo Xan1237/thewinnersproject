@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import time
 from typing import Any
 
@@ -34,14 +35,66 @@ MENU: dict[str, tuple[list[float], str]] = {
     "sidestep_left": ([0.0, -0.8, 0.0, 0.0], "Step sideways to the left without turning. Use to get around an obstacle that is directly ahead."),
     "sidestep_right": ([0.0, 0.8, 0.0, 0.0], "Step sideways to the right without turning. Use to get around an obstacle that is directly ahead."),
     "back_off": ([-0.6, 0.0, 0.0, 0.0], "Walk backwards. Use when blocked or too close to something."),
-    "grab": ([0.0, 0.0, 0.0, 1.0], "Reach out and pick up the object in front of you. Only useful when the task is to pick something up and you are within 0.9 m of it."),
+    "grab": ([0.0, 0.0, 0.0, 1.0], "Reach out and pick up the object in front of you. Only useful when the task is to pick something up and you are within 1 m of it."),
     "stop": ([0.0, 0.0, 0.0, 0.0], "Stand still. Use when the task is done."),
 }
 
+_ROW = re.compile(r"^- (?P<label>[^:]+?)(?: \(\d+ of them\))?: nearest (?P<d>[\d.]+) m away, (?P<dir>[^;\n]+)", re.M)
+
+
+def find_in_view(text: str, target: str) -> tuple[str, float, float] | None:
+    """Look up the thing the orchestrator chose in the robot's "You can see" list.
+
+    Returns (label, distance m, bearing degrees; 0 = ahead, + right, - left) or None."""
+    want = re.sub(r"[^a-z ]", "", target.lower()).strip()
+    if not want:
+        return None
+    best = None
+    for m in _ROW.finditer(text):
+        label = m["label"].strip().lower()
+        words = set(want.split())
+        score = len(words & set(label.split())) / max(len(words), 1) + (1 if want in label or label in want else 0)
+        if score > 0 and (best is None or score > best[0]):
+            best = (score, m)
+    if best is None:
+        return None
+    m = best[1]
+    direction = m["dir"].strip()
+    deg = re.search(r"(\d+)°", direction)
+    if "straight ahead" in direction:
+        bearing = 0.0
+    elif "directly behind" in direction:
+        bearing = 180.0
+    elif deg:
+        bearing = float(deg[1]) * (1 if "right" in direction else -1)
+    else:
+        return None
+    return m["label"].strip(), float(m["d"]), bearing
+
+
+def chosen_target_text(obs: Observation, target: str) -> str:
+    """Live bearing of the robot's own chosen target, in the same words as the explicit-target mode."""
+    hit = find_in_view(obs.text, target)
+    if hit is None:
+        return f"Your chosen target '{target}' is not in view right now: turn to look around." if target else ""
+    label, dist, deg = hit
+    side = "right" if deg >= 0 else "left"
+    mag = abs(deg)
+    if mag < 12:
+        how = "essentially dead ahead: walk forward"
+    elif mag > 150:
+        how = "almost directly behind you"
+    elif mag < 45:
+        how = "ahead but off to one side: veer toward it"
+    else:
+        how = "well off to one side: turn toward it first"
+    return f"Your chosen target ({label}): {dist:.1f} m away, bearing {mag:.0f} degrees {side} ({how})."
+
+
 def bearing_text(obs: Observation) -> str:
     """Target direction as an angle, from the contract's goal_forward / goal_right (state[3], [4])."""
-    if len(obs.state) < 6:
-        return ""
+    if len(obs.state) < 6 or "Your instruction:" in obs.text:
+        return ""  # blind mode: the robot picks its own target (see chosen_target_text)
     fwd, right = obs.state[3], obs.state[4]
     deg = math.degrees(math.atan2(right, fwd))  # 0 = dead ahead, + = to the right, 180 = behind
     side = "right" if deg >= 0 else "left"
@@ -54,6 +107,12 @@ def bearing_text(obs: Observation) -> str:
 
 
 ORCHESTRATOR_SYSTEM = """You are the planner ("orchestrator") of a walking humanoid robot in a room.
+You are given an instruction in plain words and a list of what the robot can see (each thing with its
+distance and bearing in degrees: 0 = straight ahead, positive = to the right, negative = to the left).
+Nobody tells you which object is meant: work it out from the instruction. Begin your answer with one line
+`TARGET: <the thing you are heading for, copied from the list of what the robot can see>` (for example
+`TARGET: coffee cup`); the robot is then told its live bearing every tick. When a part of the instruction is
+done (see "Progress"), choose the next target. Then write the guidance.
 Every tick a fast decision model picks ONE move from this menu, using your plan as guidance:
 {menu}
 Directions are from the robot's own point of view. Write the guidance for the next few ticks:
@@ -100,6 +159,8 @@ class JevOrchestratedPolicy:
         self._last_confidence = 1.0
         self._moves: list[str] = []
         self._plan_age = 0
+        self._target = ""
+        self._stage = ""
 
     # -- helpers ---------------------------------------------------------------------------------
 
@@ -127,9 +188,17 @@ class JevOrchestratedPolicy:
         assert last is not None
         raise last
 
-    def _needs_plan(self, history: list[Step]) -> bool:
+    @staticmethod
+    def _stage_key(obs: Observation) -> str:
+        if "Your instruction:" not in obs.text:
+            return ""
+        m = re.search(r"Progress: part (\d+)", obs.text)
+        return f"{m[1] if m else ''}|{'holding' if 'holding a coffee' in obs.text else ''}|{'seated' if 'sitting down' in obs.text else ''}"
+
+    def _needs_plan(self, history: list[Step], obs: Observation | None = None) -> bool:
         return (
             not history
+            or (obs is not None and self._stage_key(obs) != self._stage)
             or not self._plan
             or self._plan_age >= self.replan_every
             or self._last_confidence < self.low_confidence
@@ -139,7 +208,8 @@ class JevOrchestratedPolicy:
         menu = "\n".join(f"- {k}: {v[1]}" for k, v in MENU.items())
         recent = ", ".join(self._moves[-6:]) or "none yet"
         user = (
-            f"Task: {task}\n\nCurrent situation:\n{obs.text}\n{bearing_text(obs)}\n\nMoves chosen so far (latest last): {recent}\n"
+            f"Task: {task}\n\nCurrent situation:\n{obs.text}\n{bearing_text(obs)}\n{chosen_target_text(obs, self._target) if self._target else ''}\n\n"
+            f"Moves chosen so far (latest last): {recent}\n"
             f"Previous plan: {self._plan or 'none'}\n\nWrite the guidance now."
         )
         data = self._post(
@@ -154,7 +224,12 @@ class JevOrchestratedPolicy:
                 **self.extra_body,
             },
         )
-        text = (data["choices"][0]["message"].get("content") or "").strip().replace("\n", " ")
+        raw = (data["choices"][0]["message"].get("content") or "").strip()
+        first, _, rest = raw.partition("\n")
+        if first.upper().lstrip("*# ").startswith("TARGET"):
+            self._target = first.split(":", 1)[-1].strip(" *`\"'")
+            raw = rest.strip()
+        text = raw.replace("\n", " ")
         usage = data.get("usage") or {}
         tin, tout = int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
         cost = (tin * self.price_in + tout * self.price_out) / 1_000_000
@@ -167,7 +242,7 @@ class JevOrchestratedPolicy:
                 "model": self.jev_model,
                 "state": {
                     "task": task,
-                    "situation": f"{obs.text} {bearing_text(obs)}".strip(),
+                    "situation": f"{obs.text}\n{bearing_text(obs) or (chosen_target_text(obs, self._target) if self._target else '')}".strip(),
                     "moves_so_far": self._moves[-6:],
                 },
                 "questions": {
@@ -196,11 +271,13 @@ class JevOrchestratedPolicy:
             return Action(values=[], meta={"error": f"move menu needs a 4-dim action, got {action_spec.dim}"})
         if not history:  # new episode
             self._plan, self._moves, self._plan_age, self._last_confidence = "", [], 0, 1.0
+            self._target, self._stage = "", ""
         cost = 0.0
         replanned = False
         try:
-            if self._needs_plan(history):
+            if self._needs_plan(history, obs):
                 try:
+                    self._stage = self._stage_key(obs)
                     self._plan, plan_cost, _, _ = self._plan_text(obs, task)
                     cost += plan_cost
                     self._plan_age = 0

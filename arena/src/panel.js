@@ -33,7 +33,7 @@ export class Panel {
   }
 
   stats(model) {
-    if (!this.models.has(model)) this.models.set(model, { runs: 0, wins: 0, steps: 0, winSteps: 0, now: '', decisions: 0, latency: 0, cost: 0 });
+    if (!this.models.has(model)) this.models.set(model, { runs: 0, wins: 0, steps: 0, winSteps: 0, now: '', decisions: 0, latency: 0, cost: 0, labeled: 0, fails: 0 });
     return this.models.get(model);
   }
 
@@ -61,11 +61,12 @@ export class Panel {
       this.renderBoard();
     } else if (ev.type === 'step') {
       const s = this.sessions.get(ev.session) || (this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0 }), this.sessions.get(ev.session));
-      s.steps = ev.t; s.distance = ev.distance;
+      s.steps = ev.t; s.distance = ev.distance; this.stats(ev.model).labeled++;
       if (ev.detail?.latency_s != null) { const st = this.stats(ev.model); st.decisions++; st.latency += ev.detail.latency_s; st.cost += ev.detail.cost_usd || 0; }
       const tr = this.trails.get(ev.session); if (tr) for (const p of ev.path || [ev.position]) tr.pts.push([p[0], p[1]]);
       this.scheduleMinimap();
       this.addStep(ev);
+      if (ev.stage_done) this.addRow(ev.model, `<div class="label">☕ Part ${ev.stage} done: got the coffee</div><div class="act">now looking for a free seat</div>`, 'ok');
       this.renderBoard();
     } else if (ev.type === 'session_finished') {
       const st = this.stats(ev.model);
@@ -125,7 +126,9 @@ export class Panel {
 
   onTraining(ev) {
     const t = this.training;
-    if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} successful episodes (${ev.from_llm ?? '?'} from LLMs, ${ev.from_scripted ?? '?'} scripted), ${ev.samples ?? '?'} samples`; t.info = ev; }
+    if (ev.phase === 'collect') t.status = `Step 1 · ${ev.models} frontier models are playing ${ev.total} runs. Every decision is recorded as labeled data.`;
+    else if (ev.phase === 'topup') t.status = `Step 1b · scripted teachers add ${ev.total} cheap runs on a second sim.`;
+    else if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} successful episodes (${ev.from_llm ?? '?'} from LLMs, ${ev.from_scripted ?? '?'} scripted), ${ev.samples ?? '?'} samples`; t.info = ev; }
     else if (ev.phase === 'epoch') { t.epochs.push(ev); t.status = `Training · epoch ${ev.epoch} · loss ${Number(ev.loss).toFixed(4)}`; }
     else if (ev.phase === 'eval') { t.evals.push(ev); t.status = `Evaluated learned policy: ${(100 * ev.success_rate).toFixed(0)}% success over ${ev.n} episodes`; }
     else if (ev.phase === 'done') { t.status = `Training finished · ${ev.checkpoint ?? ''}`; t.info = { ...t.info, ...ev }; }

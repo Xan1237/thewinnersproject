@@ -37,6 +37,6 @@ One JSON event per step for every session: `{"session","model","task","t","actio
 
 ## Tasks
 - `goto:<object_id>`: success when the robot is within 1.2 m of the object's centre.
-- `fetch_coffee`: success when `interact > 0.5` is sent within 0.9 m of the coffee station on the table, so that `holding == 1`.
+- `fetch_coffee`: success when `interact > 0.5` is sent within 1.0 m of the coffee station on the table, so that `holding == 1`.
 
 Reward: `+1` on success, `-0.01` per step, plus a small shaping term of `0.1 * (previous_goal_dist - goal_dist)`.

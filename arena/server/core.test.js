@@ -18,7 +18,7 @@ function greedy(s) {
   const ang = Math.atan2(-g.right, g.forward); // positive turn = toward +X = toward robot's left
   const turn = Math.max(-1, Math.min(1, -ang * 1.5));
   const fwd = Math.abs(ang) < 0.6 ? 1 : 0;
-  return [fwd, 0, -turn, s.spec.kind === 'fetch_coffee' && s.goalDist() < 0.85 ? 1 : 0];
+  return [fwd, 0, -turn, s.spec.kind === 'fetch_coffee' && s.goalDist() < 0.95 ? 1 : 0];
 }
 
 test('forward motion follows heading (0 faces +Z)', () => {
@@ -100,4 +100,33 @@ test('HTTP API: session lifecycle, SSE, validation', async () => {
   ac.abort();
   server.close();
   server.closeAllConnections?.();
+});
+
+test('talk scenario: blind observation, coffee first, then any free seat', () => {
+  let ok = 0, sawTarget = false, stages = 0;
+  for (let seed = 0; seed < 5; seed++) {
+    const s = new Session(world, { id: 't', task: 'talk', seed, maxSteps: 140 });
+    assert.match(s.observation().text, /Your instruction: "You just arrived for the talk/);
+    assert.match(s.observation().text, /coffee cup: nearest/);
+    while (!s.done) {
+      const r = s.step(greedy(s));
+      if (/Target "/.test(r.observation.text)) sawTarget = true;
+      if (r.info.stage_done) stages++;
+    }
+    if (s.success && s.seated) ok++;
+  }
+  assert.equal(sawTarget, false, 'the target must not be handed to blind robots');
+  assert.ok(stages >= 4, `coffee stage passed ${stages}/5`);
+  assert.ok(ok >= 4, `talk solved ${ok}/5`);
+});
+
+test('two robots never end up on the same chair', () => {
+  const a = new Session(world, { id: 'a', task: 'sit', seed: 3, maxSteps: 120 });
+  const b = new Session(world, { id: 'b', task: 'sit', seed: 4, maxSteps: 120 });
+  world.peers = () => [a, b];
+  try {
+    while (!a.done || !b.done) { if (!a.done) a.step(greedy(a)); if (!b.done) b.step(greedy(b)); }
+    assert.ok(a.seated && b.seated);
+    assert.notEqual(a.spec.target.id, b.spec.target.id);
+  } finally { world.peers = () => []; }
 });

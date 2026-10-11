@@ -13,12 +13,12 @@ export class Insight {
     this.lastState = null;
     this.lastOut = null;
     this.reset();
-    this.renderPipeline(); this.renderH2H();
+    this.renderPipeline(); this.renderH2H(); this.renderDataset();
     fetch('/sim/model').then(r => (r.ok ? r.json() : null)).then(m => { if (m) { this.net = m; this.drawNet(); } }).catch(() => {});
   }
 
   reset() {
-    this.p = { stage: 1, collected: 0, kept: 0, samples: 0, epochs: 0, epoch: 0, evalRate: null, evalN: 0, done: false, fromLlm: 0, fromScripted: 0 };
+    this.p = { expected: 0, topup: false, topupTotal: 0, stage: 1, collected: 0, kept: 0, samples: 0, epochs: 0, epoch: 0, evalRate: null, evalN: 0, done: false, fromLlm: 0, fromScripted: 0 };
     this.lastState = null; this.lastOut = null;
   }
 
@@ -26,14 +26,16 @@ export class Insight {
     const p = this.p;
     if (ev.type === 'model') fetch('/sim/model').then(r => r.json()).then(m => { this.net = m; this.drawNet(); });
     if (ev.type === 'training') {
-      if (ev.phase === 'start') Object.assign(p, { stage: 3, collected: ev.collected ?? ev.episodes, kept: ev.episodes, samples: ev.samples ?? 0, epochs: ev.epochs ?? 0, epoch: 0, fromLlm: ev.from_llm ?? 0, fromScripted: ev.from_scripted ?? 0, done: false, evalRate: null });
+      if (ev.phase === 'collect') Object.assign(p, { stage: 1, expected: ev.total, topup: false });
+      else if (ev.phase === 'topup') { p.topup = true; p.topupTotal = ev.total; }
+      else if (ev.phase === 'start') Object.assign(p, { stage: 3, collected: ev.collected ?? ev.episodes, kept: ev.episodes, samples: ev.samples ?? 0, epochs: ev.epochs ?? 0, epoch: 0, fromLlm: ev.from_llm ?? 0, fromScripted: ev.from_scripted ?? 0, done: false, evalRate: null });
       else if (ev.phase === 'epoch') { p.stage = 3; p.epoch = ev.epoch; if (!p.epochs) p.epochs = Math.max(p.epochs, ev.epoch); }
       else if (ev.phase === 'eval') { p.stage = 4; p.evalRate = ev.success_rate; p.evalN = ev.n; }
       else if (ev.phase === 'done') { p.stage = 4; p.done = true; }
       this.renderPipeline();
     }
     if (ev.type === 'step' && kindOf(ev.model) === 'trained' && ev.state) { this.lastState = ev.state; this.lastEv = ev; this.drawNet(); }
-    if (ev.type === 'step' || ev.type === 'session_finished') { this.renderH2H(); if (p.stage === 1) this.renderPipeline(); }
+    if (ev.type === 'step' || ev.type === 'session_finished') { this.scheduleDataset(); this.renderH2H(); if (p.stage === 1) this.renderPipeline(); }
   }
 
   /* ---------- pipeline stepper ---------- */
@@ -43,12 +45,33 @@ export class Insight {
     const trainPct = p.epochs ? Math.min(100, Math.round(100 * p.epoch / p.epochs)) : 0;
     const st = n => (p.stage > n || (p.done && n === 4) ? 'done' : p.stage === n ? 'active' : '');
     const cards = [
-      [1, 'Collect', 'Frontier models drive the robots', `<b>${p.stage > 1 ? p.collected : runs}</b> runs recorded`],
+      [1, 'Collect', p.topup ? 'Scripted teachers top up the data' : 'Frontier models drive the robots', p.stage > 1 ? `<b>${p.collected}</b> runs recorded` : `<b>${runs}</b>${p.expected ? ` / ${p.expected}` : ''} runs${p.expected ? `<div class="bar"><i style="width:${Math.min(100, Math.round(100 * runs / p.expected))}%"></i></div>` : ''}`],
       [2, 'Filter', 'Keep only the winning runs', p.stage > 1 ? `<b>${p.kept}</b> of ${p.collected} kept` : `<b>${wins}</b> winners so far`],
       [3, 'Train', 'A small network copies the winners', p.stage >= 3 ? `epoch <b>${p.epoch}</b>${p.epochs ? ` / ${p.epochs}` : ''}<div class="bar"><i style="width:${trainPct}%"></i></div>` : `<b>${p.samples || '–'}</b> samples`],
       [4, 'Deploy', 'The trained model plays on its own', p.evalRate != null ? `<b>${Math.round(100 * p.evalRate)}%</b> success` : 'waiting'],
     ];
     $('pipeline').innerHTML = cards.map(([n, t, d, v]) => `<div class="stage ${st(n)}"><div class="n">${st(n) === 'done' ? '✓' : n}</div><div class="t">${t}</div><div class="d">${d}</div><div class="v">${v}</div></div>`).join('<div class="arrow">›</div>');
+  }
+
+  /* ---------- the dataset that is being built ---------- */
+  scheduleDataset() {
+    if (this._ds) return;
+    this._ds = requestAnimationFrame(() => { this._ds = 0; this.renderDataset(); });
+  }
+
+  renderDataset() {
+    const rows = [...this.panel.models.entries()];
+    const wins = rows.reduce((n, [, s]) => n + s.wins, 0), runs = rows.reduce((n, [, s]) => n + s.runs, 0), steps = rows.reduce((n, [, s]) => n + (s.labeled || 0), 0);
+    const max = Math.max(4, ...rows.map(([, s]) => s.runs + (s.now ? 1 : 0)));
+    const bar = ([m, s]) => {
+      const kind = kindOf(m), live = s.now ? 1 : 0, w = n => `${(100 * n / max).toFixed(1)}%`;
+      return `<div class="drow ${kind}"><div class="dn">${kind === 'trained' ? '★ ' : ''}${m}</div>
+        <div class="dbar"><i class="w" style="width:${w(s.wins)}"></i><i class="f" style="width:${w(s.runs - s.wins)}"></i><i class="l" style="width:${w(live)}"></i></div>
+        <div class="dc">${s.wins}/${s.runs}</div></div>`;
+    };
+    $('dataset').innerHTML = `<div class="dtotals"><div><b>${steps.toLocaleString()}</b><span>labeled decisions</span></div><div><b>${runs}</b><span>runs played</span></div><div><b>${wins}</b><span>successful, kept for training</span></div></div>`
+      + (rows.length ? rows.map(bar).join('') : '<div class="mute">Waiting for the first robot to move…</div>')
+      + '<div class="dkey"><i class="w"></i> kept (success) <i class="f"></i> thrown away (failed) <i class="l"></i> playing now</div>';
   }
 
   /* ---------- frontier vs trained ---------- */

@@ -30,6 +30,7 @@ class _Orders:
         self.poll_s = poll_s
         self.seen = env.command().get("id", 0)  # orders issued before we started are history
         self._checked = 0.0
+        self.text = ""  # the operator's words behind the latest order
 
     def new_task(self) -> str | None:
         """The task of an order we have not acted on yet (None if none, or not understood)."""
@@ -44,6 +45,7 @@ class _Orders:
         if cmd.get("id", 0) <= self.seen:
             return None
         self.seen = cmd["id"]
+        self.text = str(cmd.get("text") or "")
         return cmd.get("task") or None
 
 
@@ -59,7 +61,7 @@ def agent_loop(policy, env_cfg: dict, run_cfg: dict, index: int, stop: threading
             time.sleep(0.2)
             continue
         try:
-            env.retask(task)
+            env.retask(task, instruction=orders.text or None)
         except Exception as exc:  # e.g. no free chair left: report and wait for the next order
             print(f"[{policy.name}] cannot do {task!r}: {exc}")
             task = None
