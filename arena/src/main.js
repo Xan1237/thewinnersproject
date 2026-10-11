@@ -6,6 +6,7 @@ import { loadG1Template } from './g1.js';
 import { Actor } from './actor.js';
 import { Panel } from './panel.js';
 import { connectEvents } from './events.js';
+import { setupVoice } from './voice.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -103,8 +104,10 @@ const actors = new Map();
 let template = null;
 const pending = [];
 
+const onVoiceEvent = setupVoice();
 function handle(ev) {
   panel.onEvent(ev);
+  onVoiceEvent(ev);
   if (!template) { pending.push(ev); return; }
   applyActor(ev);
 }
@@ -114,8 +117,12 @@ function applyActor(ev) {
     actors.set(ev.session, new Actor(template, scene, ev, { color: panel.color(ev.model), model: ev.model, cupFactory: makeCup }));
   } else if (ev.type === 'step') {
     actors.get(ev.session)?.enqueue(ev);
+  } else if (ev.type === 'task_changed') {
+    actors.get(ev.session)?.retask(ev);
   } else if (ev.type === 'session_finished') {
     actors.get(ev.session)?.finish(ev.success);
+  } else if (ev.type === 'session_ended') {
+    const a = actors.get(ev.session); if (a) a.ended = true;
   } else if (ev.type === 'reset') {
     for (const a of actors.values()) a.dispose();
     actors.clear();
@@ -128,7 +135,7 @@ function frame() {
   for (const [id, a] of actors) {
     a.update(dt, speed);
     // Finished runs linger for a few seconds, then leave the room.
-    if (a.finished != null && a.lag <= 0) { a.idleFor = (a.idleFor ?? 0) + dt; if (a.idleFor > 6) { a.dispose(); actors.delete(id); } }
+    if (a.ended && a.lag <= 0) { a.idleFor = (a.idleFor ?? 0) + dt; if (a.idleFor > 6) { a.dispose(); actors.delete(id); } }
   }
   if (view === 'follow') {
     const a = [...actors.values()].filter(x => x.finished == null).at(-1) || [...actors.values()].at(-1);

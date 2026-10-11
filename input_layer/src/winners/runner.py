@@ -38,8 +38,17 @@ def run_episode(
     seed: int,
     decision_interval: int = 1,
     max_steps: int = 500,
+    *,
+    resume: bool = False,
+    close: bool = True,
+    interrupt: Callable[[], str | None] | None = None,
 ) -> Episode:
     """Roll out `policy` on `env`.
+
+    Live mode (voice orders): `resume=True` continues the env's current session instead of
+    resetting it, `close=False` keeps the session (and robot) alive afterwards, and `interrupt`
+    is polled before every tick; if it returns a task the episode ends early (meta["interrupted"])
+    with the new task in meta["next_task"] for the caller to apply with `env.retask`.
 
     The policy is queried every `decision_interval` ticks (LLMs are slow compared to
     control rate); in between, its last safe action is held. Every tick is recorded
@@ -47,7 +56,8 @@ def run_episode(
     """
     reset_kw = {"model": policy.name} if _accepts(env.reset, "model") else {}
     step_ok = _accepts(env.step, "label", "model", "detail")
-    obs = env.reset(seed=seed, **reset_kw)
+    obs = env.current_observation() if resume else env.reset(seed=seed, **reset_kw)
+    interrupted: str | None = None
     # after reset: envs that discover their specs from a server only know them now
     safety = SafetyFilter(env.action_spec)
     steps: list[Step] = []
@@ -61,6 +71,8 @@ def run_episode(
     total_reward = 0.0
 
     for t in range(max_steps):
+        if interrupt is not None and (interrupted := interrupt()):
+            break
         decided = t % decision_interval == 0
         if decided:
             started = time.perf_counter()
@@ -111,9 +123,9 @@ def run_episode(
         if done:
             break
 
-    close = getattr(env, "close", None)  # envs holding server-side sessions release them
-    if callable(close):
-        close()
+    closer = getattr(env, "close", None)  # envs holding server-side sessions release them
+    if close and callable(closer):
+        closer()
 
     return Episode(
         episode_id=uuid.uuid4().hex[:12],
@@ -123,5 +135,5 @@ def run_episode(
         steps=steps,
         success=bool(info.get("success", False)),
         total_reward=total_reward,
-        meta={"decision_interval": decision_interval},
+        meta={"decision_interval": decision_interval, **({"interrupted": True, "next_task": interrupted} if interrupted else {})},
     )

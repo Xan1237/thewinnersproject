@@ -4,9 +4,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ACTION_SPEC, OBSERVATION_SPEC, Session, World } from './core.js';
+import { interpret } from './commands.js';
+import { transcribe } from './voice.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 64 * 1024;
+const MAX_AUDIO = 8 * 1024 * 1024;
 const MAX_SESSIONS = 64;
 const HISTORY = 2000;
 
@@ -16,6 +19,10 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
   const clients = new Set();
   const history = [];
   let nextId = 1;
+  let command = { id: 0 };   // latest operator order, polled by the agents (GET /sim/command)
+  world.peers = () => sessions.values();
+  /** Chairs other robots hold or walk to, so that one robot sits on one chair. */
+  const claimedSeats = except => new Set([...sessions.values()].filter(s => s !== except && s.spec.kind === 'sit').map(s => s.spec.target.id));
 
   const broadcast = event => {
     event.ts = Date.now();
@@ -37,6 +44,22 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
     req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}); } catch { reject(Object.assign(new Error('invalid JSON'), { status: 400 })); } });
     req.on('error', reject);
   });
+
+  const readBody = (req, limit) => new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > limit) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+
+  /** Store + announce an order; the agents pick it up and re-task their robots. */
+  const issueCommand = async body => {
+    let task = body.task ?? null, say = body.say ?? '', via = 'explicit';
+    if (!task && body.text) ({ task, say, via } = await interpret(String(body.text).slice(0, 500), world));
+    command = { id: command.id + 1, text: body.text ?? '', task, say, via, stt: body.stt ?? null, ts: Date.now() };
+    broadcast({ type: 'command', ...command });
+    return command;
+  };
 
   const sessionSnapshot = s => ({ id: s.id, task: s.task, model: s.model, seed: s.seed, t: s.t, done: s.done, success: s.success, observation: s.observation() });
 
@@ -66,6 +89,19 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         broadcast({ type: 'reset' });
         return send(res, 200, { ok: true });
       }
+      if (req.method === 'GET' && path === '/sim/command') return send(res, 200, command);
+      if (req.method === 'POST' && path === '/sim/command') {
+        const body = await readJson(req);
+        return send(res, 200, await issueCommand(body));
+      }
+      if (req.method === 'POST' && path === '/sim/voice') {
+        const audio = await readBody(req, MAX_AUDIO);
+        if (!audio.length) return send(res, 400, { error: 'empty audio' });
+        const heard = await transcribe(audio, req.headers['content-type'] ?? 'audio/webm');
+        broadcast({ type: 'heard', text: heard.text, stt: heard.model, latency_s: heard.latency_s });
+        if (!heard.text.trim()) return send(res, 200, { id: command.id, text: '', task: null, say: "I didn't hear anything." });
+        return send(res, 200, await issueCommand({ text: heard.text, stt: heard.model }));
+      }
       if (req.method === 'GET' && path === '/sim/sessions') return send(res, 200, { sessions: [...sessions.values()].map(sessionSnapshot) });
       if (req.method === 'POST' && path === '/sim/sessions') {
         if (sessions.size >= MAX_SESSIONS) {
@@ -74,12 +110,12 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         }
         const body = await readJson(req);
         const id = `s${nextId++}`;
-        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120 });
+        const s = new Session(world, { id, task: body.task ?? 'goto:armchair_blue', seed: Number.isInteger(body.seed) ? body.seed : 0, model: String(body.model ?? 'unknown').slice(0, 64), maxSteps: Number.isInteger(body.max_steps) ? Math.min(Math.max(body.max_steps, 1), 1000) : 120, claimed: claimedSeats(null) });
         sessions.set(id, s);
         broadcast({ type: 'session_started', session: id, model: s.model, task: s.task, seed: s.seed, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
         return send(res, 200, { id, task_description: s.spec.description, action_spec: ACTION_SPEC, observation_spec: OBSERVATION_SPEC, observation: s.observation() });
       }
-      const m = /^\/sim\/sessions\/([^/]+)(?:\/(step))?$/.exec(path);
+      const m = /^\/sim\/sessions\/([^/]+)(?:\/(step|task))?$/.exec(path);
       if (m) {
         const s = sessions.get(m[1]);
         if (!s) return send(res, 404, { error: 'unknown session' });
@@ -88,6 +124,12 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
           sessions.delete(m[1]);
           broadcast({ type: 'session_ended', session: s.id, model: s.model, task: s.task, success: s.success, steps: s.t, reason: s.reason });
           return send(res, 200, { ok: true });
+        }
+        if (req.method === 'POST' && m[2] === 'task') {
+          const body = await readJson(req);
+          s.retask(String(body.task ?? ''), claimedSeats(s));
+          broadcast({ type: 'task_changed', session: s.id, model: s.model, task: s.task, task_description: s.spec.description, target: [s.spec.target.x, s.spec.target.z], target_name: s.spec.target.name, position: [s.x, s.z], heading: s.heading, y: world.groundHeight(s.x, s.z), max_steps: s.maxSteps });
+          return send(res, 200, { id: s.id, task: s.task, task_description: s.spec.description, observation: s.observation() });
         }
         if (req.method === 'POST' && m[2] === 'step') {
           const body = await readJson(req);
@@ -99,7 +141,7 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
           if (body.detail != null) { const j = JSON.stringify(body.detail); if (j.length <= 2000) detail = body.detail; }
           const r = s.step(body.action);
           broadcast({
-            type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label, detail, pose: typeof body.pose === 'string' ? body.pose.slice(0, 32) : null,
+            type: 'step', session: s.id, model, task: s.task, t: s.t, action: body.action.map(Number), label, detail, pose: r.info.pose ?? (typeof body.pose === 'string' ? body.pose.slice(0, 32) : null), pose_s: r.info.pose_s, seat: r.info.seat,
             position: r.info.position, heading: r.info.heading, y: r.info.y, path: r.path, joints: r.info.joints,
             holding: r.info.holding, collided: r.info.collided, distance: r.info.distance, reward: r.reward, done: r.done,
             success: r.info.success, reason: r.info.reason,

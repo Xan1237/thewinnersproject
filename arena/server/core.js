@@ -8,6 +8,9 @@ export const WALK_SPEED = 1.5;
 export const TURN_RATE = 1.5;     // rad/s at turn = 1
 export const GOTO_RADIUS = 1.2;
 export const COFFEE_RADIUS = 0.9;
+export const SIT_RADIUS = 0.95;
+/** Emotes: a one-step task that ends with the robot playing an animation clip (see arena/src/animations.js). */
+export const EMOTES = { jump: 1.4, wave: 2.6, dance: 4.0, cheer: 2.4 };
 
 export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
@@ -20,6 +23,7 @@ export const OBSERVATION_SPEC = {
   description: 'x,z in metres (world), heading in radians (0 faces +Z). goal_forward/goal_right: target position in the robot frame (metres; goal_right < 0 means the target is on your left, so turn left = positive turn). holding: 1 once the coffee cup is in hand.',
 };
 
+const normAngle = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 const round = (v, n = 4) => Math.round(v * 10 ** n) / 10 ** n;
 
@@ -83,6 +87,63 @@ export class World {
     this.solids = this.objects.filter(o => o.solid);
     this.platforms = this.objects.filter(o => o.kind === 'platform');
     this.cup = this.byId.get('coffee_cup') ?? null;
+    // Every chair can be sat on. `rot` is the Godot yaw of the model (its front is -Z at 0), so the
+    // sim heading of a person sitting in it is rot + 180 degrees.
+    this.seats = this.objects.filter(o => o.kind === 'chair' || o.kind === 'folding').map(o => ({ ...o, heading: normAngle(((o.rot ?? 0) + 180) * Math.PI / 180) }));
+    this.peers = () => [];   // the server plugs in the other live sessions (robots are obstacles for each other)
+  }
+
+  /** Is another robot standing within body distance of (x, z)? */
+  peerBlocked(x, z, self) {
+    for (const p of this.peers()) {
+      if (p === self || p.done) continue;
+      if (Math.hypot(p.x - x, p.z - z) < ROBOT_RADIUS * 2 - 0.02) return true;
+    }
+    return false;
+  }
+
+  /** Steps-in-metres walking distance from (fx, fz) to every free cell of a 0.1 m grid (BFS, 4-neighbour). */
+  walkGrid(fx, fz) {
+    const cell = 0.1, b = this.bounds;
+    const nx = Math.ceil((b.maxX - b.minX) / cell) + 1, nz = Math.ceil((b.maxZ - b.minZ) / cell) + 1;
+    const dist = new Float32Array(nx * nz).fill(Infinity);
+    const ix = Math.round((fx - b.minX) / cell), iz = Math.round((fz - b.minZ) / cell);
+    const queue = [[ix, iz]];
+    dist[iz * nx + ix] = 0;
+    for (let q = 0; q < queue.length; q++) {
+      const [x, z] = queue[q], d = dist[z * nx + x];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = x + dx, Z = z + dz;
+        if (X < 0 || Z < 0 || X >= nx || Z >= nz || dist[Z * nx + X] !== Infinity) continue;
+        if (this.blocked(b.minX + X * cell, b.minZ + Z * cell)) continue;
+        dist[Z * nx + X] = d + cell;
+        queue.push([X, Z]);
+      }
+    }
+    return { dist, nx, nz, cell, b };
+  }
+
+  /** Walking distance to get within `radius` of `obj` (Infinity if walled off). */
+  walkDistanceTo(grid, obj, radius) {
+    let best = Infinity;
+    const { dist, nx, nz, cell, b } = grid, r = Math.ceil(radius / cell);
+    const cx = Math.round((obj.x - b.minX) / cell), cz = Math.round((obj.z - b.minZ) / cell);
+    for (let z = Math.max(cz - r, 0); z <= Math.min(cz + r, nz - 1); z++) {
+      for (let x = Math.max(cx - r, 0); x <= Math.min(cx + r, nx - 1); x++) {
+        if (Math.hypot((x - cx) * cell, (z - cz) * cell) <= radius - 0.05) best = Math.min(best, dist[z * nx + x]);
+      }
+    }
+    return best;
+  }
+
+  /** Can a robot walk the straight line from (ax, az) to within `stop` of (bx, bz)? */
+  lineClear(ax, az, bx, bz, stop = 0.9) {
+    const len = Math.hypot(bx - ax, bz - az);
+    for (let d = 0; d < len - stop; d += 0.1) {
+      const t = d / len;
+      if (this.blocked(ax + (bx - ax) * t, az + (bz - az) * t)) return false;
+    }
+    return true;
   }
 
   blocked(x, z) {
@@ -107,7 +168,7 @@ export class World {
     for (let i = 0; i < 400; i++) {
       const x = this.bounds.minX + 0.6 + rand() * (this.bounds.maxX - this.bounds.minX - 1.2);
       const z = this.bounds.minZ + 0.6 + rand() * (this.bounds.maxZ - this.bounds.minZ - 1.2);
-      if (this.blocked(x, z)) continue;
+      if (this.blocked(x, z) || this.peerBlocked(x, z, null)) continue;
       if (Math.hypot(goal.x - x, goal.z - z) < 2.5) continue;
       return { x, z, heading: (rand() * 2 - 1) * Math.PI };
     }
@@ -115,11 +176,39 @@ export class World {
   }
 }
 
-export function resolveTask(world, task) {
+export const TASK_HELP = 'goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle';
+
+/** `ctx.claimed`: seat ids other robots already sit in or walk to. `ctx.from`: where the robot is now. */
+export function resolveTask(world, task, ctx = {}) {
+  const claimed = ctx.claimed ?? new Set();
+  if (task === 'idle') {
+    const at = ctx.from ?? { x: 0, z: 0 };
+    return { kind: 'idle', target: { id: 'nothing', name: 'nothing', x: at.x, z: at.z }, radius: 0, description: 'Stand still and wait for instructions.' };
+  }
   if (task === 'fetch_coffee') {
     const cup = world.cup;
     if (!cup) throw new Error('manifest has no coffee_cup');
     return { kind: 'fetch_coffee', target: cup, radius: COFFEE_RADIUS, description: 'Walk to the table on the right side of the room, pick up the coffee cup (set interact > 0.5 within 0.9 m of the cup) and hold it.' };
+  }
+  if (EMOTES[task]) {
+    const at = ctx.from ?? { x: 0, z: 0 };
+    return { kind: 'emote', emote: task, target: { id: 'self', name: 'yourself', x: at.x, z: at.z }, radius: 0, description: `Perform the "${task}" animation right where you stand (any action completes it).` };
+  }
+  const sit = /^sit(?::(.+))?$/.exec(task);
+  if (sit) {
+    const at = ctx.from ?? { x: 0, z: 0 };
+    let seat = sit[1] && sit[1] !== 'any' ? world.seats.find(s => s.id === sit[1]) : null;
+    if (sit[1] && sit[1] !== 'any' && !seat) throw new Error(`unknown chair id: ${sit[1]}`);
+    // One robot per chair: a taken chair falls back to the nearest free one.
+    if (!seat || claimed.has(seat.id)) {
+      // Nearest free chair by walking distance (chairs walled off by the table are skipped).
+      const grid = world.walkGrid(at.x, at.z), ref = seat ?? at;
+      // A straight, unobstructed walk is preferred (robots are not good at going around furniture).
+      const cost = s => world.walkDistanceTo(grid, s, SIT_RADIUS) + 0.3 * Math.hypot(s.x - ref.x, s.z - ref.z) + (world.lineClear(at.x, at.z, s.x, s.z) ? 0 : 8);
+      seat = world.seats.filter(s => !claimed.has(s.id)).map(s => ({ s, c: cost(s) })).filter(e => Number.isFinite(e.c)).sort((a, b) => a.c - b.c)[0]?.s;
+      if (!seat) throw new Error('no free chair left');
+    }
+    return { kind: 'sit', target: seat, radius: SIT_RADIUS, description: `Walk to the ${seat.name} and sit down on it (get within ${SIT_RADIUS} m of it).` };
   }
   const m = /^goto:(.+)$/.exec(task);
   if (m) {
@@ -127,20 +216,23 @@ export function resolveTask(world, task) {
     if (!target) throw new Error(`unknown object id: ${m[1]}`);
     return { kind: 'goto', target, radius: GOTO_RADIUS, description: `Walk to the ${target.name} and stop within ${GOTO_RADIUS} m of it.` };
   }
-  throw new Error(`unknown task: ${task}`);
+  throw new Error(`unknown task: ${task}. Supported: ${TASK_HELP}`);
 }
 
 export class Session {
-  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120 } = {}) {
+  constructor(world, { id, task = 'goto:armchair_blue', seed = 0, model = 'unknown', maxSteps = 120, claimed } = {}) {
     this.world = world;
     this.id = id;
     this.seed = seed;
     this.model = model;
     this.maxSteps = maxSteps;
     this.task = task;
-    this.spec = resolveTask(world, task);
     const rand = mulberry32(seed * 7919 + 13);
-    const start = world.startPose(rand, this.spec.target);
+    const first = resolveTask(world, task, { claimed });
+    const start = world.startPose(rand, first.target);
+    // Tasks without a fixed target (sit on any chair, emotes, idle) depend on where the robot starts.
+    this.spec = ['sit', 'emote', 'idle'].includes(first.kind) ? resolveTask(world, task, { claimed, from: start }) : first;
+    this.seated = false;
     this.x = start.x;
     this.z = start.z;
     this.heading = start.heading;
@@ -154,6 +246,24 @@ export class Session {
     this.success = false;
     this.reason = '';
     this.collided = false;
+    this.lastDist = this.goalDist();
+  }
+
+  blockedAt(x, z) { return this.world.blocked(x, z) || this.world.peerBlocked(x, z, this); }
+
+  /** Give the robot a new task where it stands (voice commands). `claimed`: chairs other robots hold. */
+  retask(task, claimed) {
+    this.spec = resolveTask(this.world, task, { claimed, from: { x: this.x, z: this.z } });
+    this.task = task;
+    this.t = 0;
+    this.done = false;
+    this.success = false;
+    this.reason = '';
+    this.holding = false;
+    this.seated = false;
+    this.collided = false;
+    this.vx = 0;
+    this.vz = 0;
     this.lastDist = this.goalDist();
   }
 
@@ -182,7 +292,8 @@ export class Session {
   describe(g = this.goalLocal()) {
     const lines = [];
     lines.push(`You are at x=${this.x.toFixed(2)}, z=${this.z.toFixed(2)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees.`);
-    lines.push(`Target "${this.spec.target.name}": ${Math.abs(g.forward).toFixed(2)} m ${g.forward >= 0 ? 'ahead' : 'behind you'}, ${Math.abs(g.right).toFixed(2)} m to your ${g.right >= 0 ? 'right' : 'left'}, distance ${this.goalDist().toFixed(2)} m.`);
+    if (this.spec.kind === 'idle' || this.spec.kind === 'emote') lines.push(this.spec.description);
+    else lines.push(`Target "${this.spec.target.name}": ${Math.abs(g.forward).toFixed(2)} m ${g.forward >= 0 ? 'ahead' : 'behind you'}, ${Math.abs(g.right).toFixed(2)} m to your ${g.right >= 0 ? 'right' : 'left'}, distance ${this.goalDist().toFixed(2)} m.`);
     if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
     if (this.holding) lines.push('You are holding the coffee cup.');
     const near = this.world.objects
@@ -222,8 +333,8 @@ export class Session {
       if (Math.hypot(this.vx, this.vz) < 0.003) { this.vx = 0; this.vz = 0; }
       const nx = this.x + this.vx * SUBSTEP, nz = this.z + this.vz * SUBSTEP;
       const bx = this.x, bz = this.z;
-      if (!this.world.blocked(nx, this.z)) this.x = nx; else if (this.vx) { this.collided = true; this.vx = 0; }
-      if (!this.world.blocked(this.x, nz)) this.z = nz; else if (this.vz) { this.collided = true; this.vz = 0; }
+      if (!this.blockedAt(nx, this.z)) this.x = nx; else if (this.vx) { this.collided = true; this.vx = 0; }
+      if (!this.blockedAt(this.x, nz)) this.z = nz; else if (this.vz) { this.collided = true; this.vz = 0; }
       moved += Math.hypot(this.x - bx, this.z - bz);
       const speed = Math.hypot(this.x - bx, this.z - bz) / SUBSTEP;
       const target = Math.min(speed / WALK_SPEED, 1);
@@ -241,7 +352,16 @@ export class Session {
     const dist = this.goalDist();
     let reward = -0.01 + 0.1 * (this.lastDist - dist);
     this.lastDist = dist;
+    let pose = null, poseS = 0;
     if (this.spec.kind === 'goto' && dist <= GOTO_RADIUS) { this.success = true; reason = `reached the ${this.spec.target.name}`; }
+    if (this.spec.kind === 'sit' && dist <= SIT_RADIUS) {
+      const seat = this.spec.target;
+      this.success = true; this.seated = true; reason = `sat down on the ${seat.name}`;
+      this.x = seat.x; this.z = seat.z; this.heading = seat.heading; this.vx = this.vz = 0; this.blend = 0;
+      path.push([round(this.x), round(this.z), round(this.heading), round(this.phase, 3), 0]);
+    }
+    if (this.spec.kind === 'emote') { this.success = true; pose = this.spec.emote; poseS = EMOTES[pose]; reason = `played the ${pose} animation`; }
+    if (this.seated) pose = 'sit';
     if (this.spec.kind === 'fetch_coffee' && this.holding) this.success = true;
     if (this.success) reward += 1;
     this.done = this.success || this.t >= this.maxSteps;
@@ -254,7 +374,7 @@ export class Session {
       info: {
         success: this.success, reason, position: [round(this.x), round(this.z)], heading: round(this.heading),
         y: round(this.world.groundHeight(this.x, this.z)), joints: this.pose(), collided: this.collided, holding: this.holding,
-        distance: round(dist), moved: round(moved),
+        distance: round(dist), moved: round(moved), pose, pose_s: poseS, seat: this.seated ? this.spec.target.id : null,
       },
       path,
     };

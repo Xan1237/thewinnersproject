@@ -46,6 +46,12 @@ export class Panel {
       this.stats(ev.model).now = ev.task;
       this.addRow(ev.model, `<div class="label">Started <b>${esc(ev.task)}</b> · seed ${esc(ev.seed)}</div><div class="act">${esc(ev.task_description || '')}</div>`, '');
       this.renderBoard();
+    } else if (ev.type === 'task_changed') {
+      this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0, distance: null, max: ev.max_steps });
+      this.trails.set(ev.session, { model: ev.model, pts: [ev.position], target: ev.target, status: null });
+      this.stats(ev.model).now = ev.task;
+      this.addRow(ev.model, `<div class="label">New order: <b>${esc(ev.task)}</b></div><div class="act">${esc(ev.task_description || '')}</div>`, '');
+      this.renderBoard();
     } else if (ev.type === 'step') {
       const s = this.sessions.get(ev.session) || (this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0 }), this.sessions.get(ev.session));
       s.steps = ev.t; s.distance = ev.distance;

@@ -288,3 +288,5 @@ def test_g1_arena_config_builds_without_network():
     assert {p.jev_model for p in pols.values()} == {"typesafe/jev-1.13"}  # same decision model for all
     assert len({p.orchestrator for p in pols.values()}) == len(pols)  # different orchestrators
     assert all(p.api_key_env == "OPENROUTER_API_KEY" for p in pols.values())
+    qwen = pols["qwen-3.8-27b"].extra_body["provider"]
+    assert qwen == {"only": ["cerebras"], "allow_fallbacks": False}

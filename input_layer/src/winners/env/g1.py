@@ -132,6 +132,25 @@ class G1SimEnv:
             info,
         )
 
+    def current_observation(self) -> Observation:
+        """Observation of the live session (used when a run resumes after a retask)."""
+        if self.session_id is None:
+            raise G1SimError("no session")
+        return self._observation(self._request("GET", f"/sim/sessions/{self.session_id}")["observation"])
+
+    def retask(self, task: str) -> Observation:
+        """Give the live session a new task where the robot stands (voice orders)."""
+        if self.session_id is None:
+            raise G1SimError("retask() called before reset()")
+        data = self._request("POST", f"/sim/sessions/{self.session_id}/task", {"task": task})
+        self.task = task
+        self.task_description = str(data.get("task_description") or task)
+        return self._observation(data["observation"])
+
+    def command(self) -> dict[str, Any]:
+        """The latest operator order (`{"id": 0}` if none yet)."""
+        return self._request("GET", "/sim/command")
+
     def close(self) -> None:
         """Delete the server-side session (best effort; a missing session is fine)."""
         sid, self.session_id = self.session_id, None

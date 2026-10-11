@@ -78,6 +78,7 @@ policies:
   - type: jev
     name: qwen-3.8-27b
     orchestrator: "qwen/qwen3.8-27b"
-    orchestrator_extra_body: {reasoning: {effort: low}, provider: {sort: throughput}}
+    # Qwen only ever runs on Cerebras (pinned: no other provider, no fallback)
+    orchestrator_extra_body: {reasoning: {enabled: false}, provider: {only: ["cerebras"], allow_fallbacks: false}}
     price_in: 0.04
     price_out: 2.3

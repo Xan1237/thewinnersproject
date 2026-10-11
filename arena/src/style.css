@@ -56,3 +56,15 @@ canvas#minimap, canvas#losschart, canvas#evalchart { width: 100%; background: #1
 .odds { position: relative; display: block; height: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
 .odds i { position: absolute; inset: 0 auto 0 0; background: rgba(94, 224, 160, 0.35); }
 .odds em { position: relative; font-style: normal; font-size: 11px; padding-left: 6px; line-height: 15px; }
+
+#voice { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(560px, 80%); pointer-events: none; }
+#voice > * { pointer-events: auto; }
+#mic { --level: 0; width: 68px; height: 68px; border-radius: 50%; border: 1px solid var(--line); background: #1b2230ee; color: var(--ink); cursor: pointer; display: grid; place-items: center; transition: background .15s, transform .15s; box-shadow: 0 0 0 calc(var(--level) * 22px) rgba(255, 107, 122, calc(var(--level) * 0.35)); }
+#mic:hover { background: #26304a; transform: scale(1.04); }
+#mic.live { background: var(--bad); color: #1a0509; border-color: var(--bad); }
+#mic:disabled { opacity: .5; cursor: progress; }
+#micstatus { color: var(--mute); font-size: 12px; text-shadow: 0 1px 4px #000; }
+#heard { max-width: 100%; padding: 8px 14px; border-radius: 12px; background: #141922ee; border: 1px solid var(--line); font-size: 14px; text-align: center; }
+#heard.ok { border-color: var(--good); }
+#heard.bad { border-color: var(--bad); color: #ffc2c9; }
+#typebox { width: 100%; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: #141922ee; color: var(--ink); font: inherit; }

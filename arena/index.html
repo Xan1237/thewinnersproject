@@ -21,6 +21,12 @@
       </header>
       <div id="loading">Loading the room and the robot…</div>
       <div id="connection" class="conn off">sim offline</div>
+      <div id="voice">
+        <div id="heard" hidden></div>
+        <button id="mic" aria-label="Give an order by voice"><svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2z"/></svg></button>
+        <div id="micstatus">Click to give an order</div>
+        <input id="typebox" hidden placeholder="Type an order and press Enter" />
+      </div>
     </main>
     <aside id="panel">
       <nav class="tabs">
