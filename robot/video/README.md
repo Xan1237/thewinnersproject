@@ -4,6 +4,8 @@ The English walkthrough is four minutes: real robot attempts → planner/Jev dec
 
 The film uses current main's `winners.show`, with bounded execution, worker cleanup and training provenance. A clean `datanode-slide.svg` replaces the reference photograph in the room. The viewer's **Robot** selector locks the follow camera to one controller.
 
+The footage is pinned to main `2acfe28` plus this branch's changes. Main subsequently advanced to `f09c518` during recording, introducing a seven-part coffee line; that later environment is not depicted in this export. Use this branch to reproduce the recorded setup, and review integration with the newer task separately.
+
 ## Run an experiment
 
 Build the G1 assets and install the arena/input-layer dependencies using their READMEs. The recording config uses isolated loopback ports, so it can run beside an existing demo:
