@@ -9,6 +9,9 @@ export class Panel {
     this.models = new Map();   // model -> stats
     this.sessions = new Map(); // session -> {model, task, steps, distance}
     this.feedItems = 0;
+    this.manifest = null;
+    this.trails = new Map();  // session -> {model, pts, target, status}
+    fetch('/sim/manifest').then(r => r.json()).then(m => { this.manifest = m; this.drawMinimap(); }).catch(() => {});
     this.training = { epochs: [], evals: [], status: 'Waiting for training to start…', info: {} };
     document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => this.tab(b.dataset.tab));
   }
@@ -30,7 +33,7 @@ export class Panel {
   }
 
   reset() {
-    this.models.clear(); this.sessions.clear(); $('feed').innerHTML = ''; this.feedItems = 0;
+    this.trails.clear(); this.models.clear(); this.sessions.clear(); $('feed').innerHTML = ''; this.feedItems = 0;
     this.training = { epochs: [], evals: [], status: 'Waiting for training to start…', info: {} };
     this.renderBoard(); this.drawCharts();
   }
@@ -38,18 +41,24 @@ export class Panel {
   onEvent(ev) {
     if (ev.type === 'session_started') {
       this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0, distance: null, max: ev.max_steps });
+      this.trails.set(ev.session, { model: ev.model, pts: [ev.position], target: ev.target, status: null });
+      if (this.trails.size > 60) this.trails.delete(this.trails.keys().next().value);
       this.stats(ev.model).now = ev.task;
       this.addRow(ev.model, `<div class="label">Started <b>${esc(ev.task)}</b> · seed ${esc(ev.seed)}</div><div class="act">${esc(ev.task_description || '')}</div>`, '');
       this.renderBoard();
     } else if (ev.type === 'step') {
       const s = this.sessions.get(ev.session) || (this.sessions.set(ev.session, { model: ev.model, task: ev.task, steps: 0 }), this.sessions.get(ev.session));
       s.steps = ev.t; s.distance = ev.distance;
+      const tr = this.trails.get(ev.session); if (tr) for (const p of ev.path || [ev.position]) tr.pts.push([p[0], p[1]]);
+      this.scheduleMinimap();
       this.addStep(ev);
       this.renderBoard();
     } else if (ev.type === 'session_finished') {
       const st = this.stats(ev.model);
       st.runs++; st.steps += ev.steps; if (ev.success) { st.wins++; st.winSteps += ev.steps; }
       st.now = '';
+      const tr = this.trails.get(ev.session); if (tr) tr.status = ev.success ? 'ok' : 'fail';
+      this.scheduleMinimap();
       this.addRow(ev.model, `<div class="label">${ev.success ? '✔ Success' : '✘ Failed'} after ${ev.steps} steps</div><div class="act">${esc(ev.reason)}</div>`, ev.success ? 'ok' : 'fail');
       this.sessions.delete(ev.session);
       this.renderBoard();
@@ -93,7 +102,7 @@ export class Panel {
 
   onTraining(ev) {
     const t = this.training;
-    if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} episodes, ${ev.samples ?? '?'} samples`; t.info = ev; }
+    if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} successful episodes (${ev.from_llm ?? '?'} from LLMs, ${ev.from_scripted ?? '?'} scripted), ${ev.samples ?? '?'} samples`; t.info = ev; }
     else if (ev.phase === 'epoch') { t.epochs.push(ev); t.status = `Training · epoch ${ev.epoch} · loss ${Number(ev.loss).toFixed(4)}`; }
     else if (ev.phase === 'eval') { t.evals.push(ev); t.status = `Evaluated learned policy: ${(100 * ev.success_rate).toFixed(0)}% success over ${ev.n} episodes`; }
     else if (ev.phase === 'done') { t.status = `Training finished · ${ev.checkpoint ?? ''}`; t.info = { ...t.info, ...ev }; }
@@ -103,7 +112,47 @@ export class Panel {
     this.drawCharts();
   }
 
+  scheduleMinimap() {
+    if (this._mm) return;
+    this._mm = requestAnimationFrame(() => { this._mm = 0; if (document.getElementById('tab-training').classList.contains('selected')) this.drawMinimap(); });
+  }
+
+  /** Top-down plan of the room with the path of every run; the learned policy is drawn on top. */
+  drawMinimap() {
+    const c = $('minimap'), g = c.getContext('2d'), W = c.width, H = c.height;
+    g.clearRect(0, 0, W, H);
+    const m = this.manifest;
+    if (!m) return;
+    const b = m.bounds, pad = 8, sc = Math.min((W - 2 * pad) / (b.maxX - b.minX), (H - 2 * pad) / (b.maxZ - b.minZ));
+    const ox = (W - sc * (b.maxX - b.minX)) / 2, oy = (H - sc * (b.maxZ - b.minZ)) / 2;
+    const X = x => ox + (x - b.minX) * sc, Y = z => oy + (z - b.minZ) * sc;
+    g.strokeStyle = '#3a4558'; g.lineWidth = 1.5; g.strokeRect(X(b.minX), Y(b.minZ), (b.maxX - b.minX) * sc, (b.maxZ - b.minZ) * sc);
+    for (const o of m.objects) {
+      if (o.kind === 'item') continue;
+      g.fillStyle = o.kind === 'platform' ? '#1c2433' : '#2b3447';
+      g.fillRect(X(o.x - o.sx / 2), Y(o.z - o.sz / 2), Math.max(o.sx * sc, 2), Math.max(o.sz * sc, 2));
+    }
+    const cup = m.objects.find(o => o.id === 'coffee_cup');
+    if (cup) { g.fillStyle = '#c8a27a'; g.beginPath(); g.arc(X(cup.x), Y(cup.z), 3, 0, 7); g.fill(); }
+    const learned = t => /learned/i.test(t.model);
+    const draw = tr => {
+      if (tr.pts.length < 2) return;
+      const lrn = learned(tr);
+      g.lineWidth = lrn ? 2.4 : 1.2;
+      g.strokeStyle = lrn ? (tr.status === 'fail' ? '#ff6b7a' : '#5ee0a0') : '#8b96a8';
+      g.globalAlpha = lrn ? 0.95 : 0.28;
+      g.beginPath(); tr.pts.forEach(([x, z], i) => i ? g.lineTo(X(x), Y(z)) : g.moveTo(X(x), Y(z))); g.stroke();
+      g.globalAlpha = 1;
+      if (tr.target) { g.strokeStyle = lrn ? '#e8ecf3' : '#5a6578'; g.lineWidth = 1; g.beginPath(); g.arc(X(tr.target[0]), Y(tr.target[1]), 5, 0, 7); g.stroke(); }
+      if (lrn) { const [x, z] = tr.pts[tr.pts.length - 1]; g.fillStyle = tr.status === 'fail' ? '#ff6b7a' : '#5ee0a0'; g.beginPath(); g.arc(X(x), Y(z), 3.5, 0, 7); g.fill(); }
+    };
+    const all = [...this.trails.values()];
+    all.filter(t => !learned(t)).forEach(draw);
+    all.filter(learned).forEach(draw);
+  }
+
   drawCharts() {
+    this.drawMinimap();
     const t = this.training;
     this.line($('losschart'), [{ pts: t.epochs.map(e => [e.epoch, e.loss]), color: '#7cc4ff' }, { pts: t.epochs.filter(e => e.val_loss != null).map(e => [e.epoch, e.val_loss]), color: '#ffd35a' }], { xlabel: 'epoch', log: true });
     const teacherRates = [...this.models.entries()].filter(([m, s]) => s.runs && !/learned/i.test(m)).map(([, s]) => s.wins / s.runs);

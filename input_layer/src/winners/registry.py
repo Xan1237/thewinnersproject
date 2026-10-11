@@ -5,15 +5,17 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from winners.env.base import RobotEnv
+from winners.env.g1 import G1SimEnv
 from winners.env.mock import MockReachEnv
 from winners.policies.base import Policy
 from winners.policies.claude import ClaudePolicy
 from winners.policies.gemini import GeminiPolicy
 from winners.policies.local import LocalPolicy
 from winners.policies.openai import OpenAIPolicy
-from winners.policies.scripted import GreedyReachPolicy
+from winners.policies.openrouter import OpenRouterPolicy
+from winners.policies.scripted import GoalSeekPolicy, GreedyReachPolicy
 
-ENVS: dict[str, Callable[..., RobotEnv]] = {"mock-reach": MockReachEnv}
+ENVS: dict[str, Callable[..., RobotEnv]] = {"mock-reach": MockReachEnv, "g1-sim": G1SimEnv}
 
 
 def build_env_factory(cfg: dict[str, Any]) -> Callable[[], RobotEnv]:
@@ -33,10 +35,14 @@ def build_policy(cfg: dict[str, Any]) -> Policy:
         return GeminiPolicy(**cfg)
     if kind == "openai":
         return OpenAIPolicy(**cfg)
+    if kind == "openrouter":
+        return OpenRouterPolicy(**cfg)
     if kind == "local":
         return LocalPolicy(**cfg)
     if kind == "scripted-greedy":
         return GreedyReachPolicy(**cfg)
+    if kind == "scripted-goto":
+        return GoalSeekPolicy(**cfg)
     if kind == "learned":
         from winners.policies.learned import LearnedPolicy
 

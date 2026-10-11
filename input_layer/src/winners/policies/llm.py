@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from winners.prompting import SYSTEM_PROMPT, ActionParseError, build_prompt, parse_action
+from winners.prompting import SYSTEM_PROMPT, ActionParseError, build_prompt, parse_reply
 from winners.schema import Action, ActionSpec, Observation, Step
 
 
@@ -68,15 +68,22 @@ class LLMPolicy(ABC):
                 raise
             except httpx.HTTPError as exc:
                 last_error = f"http: {exc}"
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status in (429, 500, 502, 503, 504) and attempt < self.max_retries:
+                    time.sleep(min(0.6 * 2**attempt, 5.0))  # rate limited / upstream hiccup: back off
                 continue
             tokens_in += usage.get("input_tokens", 0)
             tokens_out += usage.get("output_tokens", 0)
             try:
-                values = parse_action(text, action_spec)
+                values, label = parse_reply(text, action_spec)
             except ActionParseError as exc:
                 last_error = str(exc)
                 continue
-            return Action(values=values, meta=self._meta(started, tokens_in, tokens_out, attempt))
+            return Action(
+                values=values,
+                label=label,
+                meta=self._meta(started, tokens_in, tokens_out, attempt),
+            )
         meta = self._meta(started, tokens_in, tokens_out, self.max_retries)
         meta["error"] = last_error
         return Action(values=[], meta=meta)

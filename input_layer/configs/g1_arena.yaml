@@ -1,0 +1,67 @@
+# G1 sim arena: several real LLMs (through OpenRouter) drive the simulated robot at the same time.
+# 1. Start the sim + viewer:  cd ../arena && npm run dev        (viewer http://127.0.0.1:8820)
+# 2. Export the key (never put it in this file):  export OPENROUTER_API_KEY=...
+# 3. python -m winners.pipeline --config configs/g1_arena.yaml --out runs/g1-live
+#    (or just the arena: python -m winners.arena --config configs/g1_arena.yaml --out runs/g1-live)
+env:
+  type: g1-sim
+  base_url: "http://127.0.0.1:8818"
+  max_steps: 60
+
+run:
+  tasks: ["goto:armchair_blue", "goto:lectern", "fetch_coffee"]
+  episodes: 2
+  seed0: 0
+  max_steps: 60
+
+train:
+  teachers: null             # null = learn from every model's successful runs
+  # Top up the few slow LLM runs with cheap scripted runs on a separate sim server (data farm):
+  #   SIM_PORT=8819 node ../arena/server/server.js
+  extra_base_url: "http://127.0.0.1:8819"
+  extra_episodes: 25
+  extra_policies:
+    - {type: scripted-goto, name: scripted-precise, noise: 0.03}
+    - {type: scripted-goto, name: scripted-sloppy, noise: 0.15}
+  epochs: 150
+  epoch_delay_s: 0.08
+  eval_episodes: 4
+  eval_pace_s: 0.35          # play the learned policy back in real time in the viewer
+
+# Names of the sim's observation vector (robot/docs/SIM_API.md), shown to the models in the prompt.
+obs_names: &obs [x, z, heading, goal_forward, goal_right, goal_dist, holding, steps_left_frac]
+
+policies:
+  # Qwen3.8 27B pinned to the fast providers (verified live 2026-10-11: ~0.25 s per reply on Cerebras,
+  # which sometimes answers 429, hence the allowlist and the retry/backoff in LLMPolicy).
+  # Reasoning is switched off: with it on, replies take seconds and can come back empty.
+  - type: openrouter
+    model: "qwen/qwen3.8-27b"
+    name: qwen-27b
+    obs_names: *obs
+    max_retries: 4
+    price_in: 0.99
+    price_out: 1.49
+    extra_body:
+      provider: {only: ["cerebras", "wafer", "modelrun"], sort: throughput, allow_fallbacks: false}
+      reasoning: {enabled: false}
+      max_tokens: 200
+
+  # GPT-6 Luna as a plain chat model (OpenAI's separate Decisions API is not used here).
+  - type: openrouter
+    model: "openai/gpt-6-luna"
+    name: gpt-6-luna
+    obs_names: *obs
+    max_retries: 3
+    price_in: 0.10
+    price_out: 0.50
+    extra_body: {reasoning: {effort: none}, max_tokens: 200}
+
+  - type: openrouter
+    model: "anthropic/claude-haiku-5.5"
+    name: claude-haiku
+    obs_names: *obs
+    max_retries: 3
+    price_in: 0.10
+    price_out: 0.50
+    extra_body: {reasoning: {enabled: false}, max_tokens: 200}

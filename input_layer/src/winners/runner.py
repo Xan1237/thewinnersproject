@@ -2,13 +2,34 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 import uuid
+from typing import Any, Callable
 
 from winners.env.base import RobotEnv
 from winners.policies.base import Policy
 from winners.safety import SafetyFilter
 from winners.schema import Action, Episode, Step
+
+
+def _accepts(fn: Callable[..., Any], *names: str) -> set[str]:
+    """Which of the optional keyword arguments `names` can `fn` take? (Backward compatibility
+    with envs written before `label`/`model` existed.)"""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return set()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return set(names)
+    return {n for n in names if n in params}
+
+
+def _joints(info: dict[str, Any]) -> dict[str, float] | None:
+    raw = info.get("joints")
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return {str(k): float(v) for k, v in raw.items() if isinstance(v, (int, float))}
 
 
 def run_episode(
@@ -24,11 +45,15 @@ def run_episode(
     control rate); in between, its last safe action is held. Every tick is recorded
     so the training data has full-rate physics, with `decided` marking real queries.
     """
+    reset_kw = {"model": policy.name} if _accepts(env.reset, "model") else {}
+    step_ok = _accepts(env.step, "label", "model")
+    obs = env.reset(seed=seed, **reset_kw)
+    # after reset: envs that discover their specs from a server only know them now
     safety = SafetyFilter(env.action_spec)
-    obs = env.reset(seed=seed)
     steps: list[Step] = []
     held: list[float] = env.action_spec.hold()
     held_raw: list[float] | None = None
+    held_label: str | None = None
     latency = cost = 0.0
     flags: list[str] = []
     info: dict = {}
@@ -46,15 +71,22 @@ def run_episode(
             latency = float(action.meta.get("latency_s", wall))
             cost = float(action.meta.get("cost_usd", 0.0))
             held_raw = action.values or None
+            held_label = action.label
             held, flags = safety.sanitize(held_raw)
             if "error" in action.meta:
                 flags = [*flags, "model_error"]
+                held_label = held_label or "hold (model error)"
         else:
             latency = cost = 0.0
             flags = []
 
         state_before = obs.state
-        obs, reward, done, info = env.step(held)
+        step_kw: dict[str, Any] = {}
+        if "label" in step_ok:
+            step_kw["label"] = held_label
+        if "model" in step_ok:
+            step_kw["model"] = policy.name
+        obs, reward, done, info = env.step(held, **step_kw)
         total_reward += reward
         steps.append(
             Step(
@@ -68,10 +100,16 @@ def run_episode(
                 latency_s=latency,
                 cost_usd=cost,
                 flags=flags,
+                label=held_label,
+                joints=_joints(info),
             )
         )
         if done:
             break
+
+    close = getattr(env, "close", None)  # envs holding server-side sessions release them
+    if callable(close):
+        close()
 
     return Episode(
         episode_id=uuid.uuid4().hex[:12],

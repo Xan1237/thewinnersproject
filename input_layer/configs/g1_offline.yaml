@@ -1,0 +1,22 @@
+# Offline demo of the whole loop, no API keys: scripted teachers -> sim -> BC -> learned policy.
+# Start the sim server first (cd ../arena && npm run sim), then:
+#   python -m winners.pipeline --config configs/g1_offline.yaml --out runs/g1-offline
+env:
+  type: g1-sim
+  base_url: "http://127.0.0.1:8818"
+  max_steps: 120
+
+run:
+  tasks: ["goto:armchair_blue", "goto:lectern", "goto:plant_tall", "goto:table"]
+  episodes: 6
+  seed0: 0
+  max_steps: 120
+
+train:
+  epochs: 60
+  epoch_delay_s: 0.08     # slow enough to watch the loss curve in the viewer
+  eval_episodes: 8
+
+policies:
+  - {type: scripted-goto, name: teacher-precise, noise: 0.03}
+  - {type: scripted-goto, name: teacher-sloppy, noise: 0.15}

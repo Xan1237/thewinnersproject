@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import numpy as np
 
 from winners.dataset import BCDataset
 from winners.schema import ActionSpec
+from winners.train.events import TrainingEventSink
 
 
 def _mlp(in_dim: int, out_dim: int, hidden: tuple[int, ...]):
@@ -31,9 +33,14 @@ def train_bc(
     lr: float = 1e-3,
     batch_size: int = 256,
     seed: int = 0,
+    training_events_url: str | None = None,
+    epoch_delay_s: float = 0.0,
 ) -> tuple[dict[str, Any], dict[str, float]]:
     """Returns (checkpoint, metrics). Checkpoint is self-contained (weights + normalization
-    + action spec) so `LearnedPolicy` needs nothing else."""
+    + action spec) so `LearnedPolicy` needs nothing else.
+
+    If `training_events_url` is set, posts `{"type": "training", "phase": "epoch", "epoch",
+    "loss", "val_loss"}` after every epoch (best effort: failures never affect training)."""
     import torch
 
     torch.manual_seed(seed)
@@ -42,23 +49,38 @@ def train_bc(
     model = _mlp(x.shape[1], y.shape[1], hidden)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
+    sink = TrainingEventSink(training_events_url)
+    xv = yv = None
+    if len(ds.x_val):
+        xv = torch.from_numpy((ds.x_val - ds.x_mean) / ds.x_std)
+        yv = torch.from_numpy((ds.y_val - ds.y_mean) / ds.y_std)
 
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
         perm = torch.randperm(len(x))
+        total = 0.0
         for i in range(0, len(x), batch_size):
             idx = perm[i : i + batch_size]
             opt.zero_grad()
             loss = loss_fn(model(x[idx]), y[idx])
             loss.backward()
             opt.step()
+            total += loss.item() * len(idx)
+        if sink.active:
+            val_loss = None
+            if xv is not None:
+                model.eval()
+                with torch.no_grad():
+                    val_loss = float(loss_fn(model(xv), yv))
+                model.train()
+            sink.send(phase="epoch", epoch=epoch, loss=total / len(x), val_loss=val_loss)
+            if epoch_delay_s:
+                time.sleep(epoch_delay_s)  # slows training down so the live chart is watchable
 
     model.eval()
     metrics: dict[str, float] = {}
     with torch.no_grad():
         metrics["train_mse"] = float(loss_fn(model(x), y))
-        if len(ds.x_val):
-            xv = torch.from_numpy((ds.x_val - ds.x_mean) / ds.x_std)
-            yv = torch.from_numpy((ds.y_val - ds.y_mean) / ds.y_std)
+        if xv is not None:
             metrics["val_mse"] = float(loss_fn(model(xv), yv))
 
     checkpoint = {

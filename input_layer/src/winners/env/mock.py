@@ -38,7 +38,7 @@ class MockReachEnv:
     def _dist(self) -> float:
         return math.dist(self._pos, self._goal)
 
-    def reset(self, seed: int | None = None) -> Observation:
+    def reset(self, seed: int | None = None, *, model: str | None = None) -> Observation:
         if seed is not None:
             self._rng = random.Random(seed)
         self._pos = [self._rng.random(), self._rng.random()]
@@ -46,7 +46,9 @@ class MockReachEnv:
         self._t = 0
         return self._obs()
 
-    def step(self, action: list[float]) -> tuple[Observation, float, bool, dict[str, Any]]:
+    def step(
+        self, action: list[float], *, label: str | None = None, model: str | None = None
+    ) -> tuple[Observation, float, bool, dict[str, Any]]:
         action = self.action_spec.clip(action)
         self._pos = [p + a * self.step_size for p, a in zip(self._pos, action)]
         self._t += 1

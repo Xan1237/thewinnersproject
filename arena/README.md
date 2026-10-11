@@ -21,6 +21,17 @@ node tools/demo-traffic.js --training         # fake models + fake training curv
 npm test                                      # sim core + HTTP API tests
 ```
 
+## Real models + training loop
+
+```
+export OPENROUTER_API_KEY=...                        # never commit it
+(cd arena && SIM_PORT=8819 node server/server.js &)  # "data farm" for cheap scripted top-up runs
+cd input_layer && uv venv --python 3.12 .venv && source .venv/bin/activate && uv pip install -e '.[dev,train]'
+python -m winners.pipeline --config configs/g1_arena.yaml --out runs/g1-live
+```
+
+The pipeline runs Qwen3.8-27B (Cerebras), GPT-6 Luna and Claude Haiku 5.5 through OpenRouter on the same tasks (watch them in the viewer), tops the few LLM runs up with scripted runs, trains a small policy by behaviour cloning (live loss curve), then plays the learned policy back in the room. Offline version without keys: `configs/g1_offline.yaml`.
+
 `?nogl` on the viewer URL skips 3D rendering (panel-only checks without a GPU).
 
 ## Rebuilding the room assets

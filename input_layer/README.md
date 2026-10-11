@@ -39,6 +39,15 @@ save_checkpoint(ckpt, "checkpoints/bc.pt")
 ```
 Use `{type: learned, checkpoint: checkpoints/bc.pt}` in the config to benchmark it next to its teachers.
 
+## G1 sim arena
+`env: {type: g1-sim, base_url: ..., task: "goto:armchair_blue" | "fetch_coffee"}` talks to the headless sim server (`robot/docs/SIM_API.md`, pure-stdlib client in `winners/env/g1.py`). See `configs/g1_arena.yaml`.
+
+- Models reply `{"action": [...], "label": "<short intent>"}`; the label (and the env's `info["joints"]`) is recorded on every `Step` and forwarded to the sim with the policy name as the model tag.
+- `RobotEnv.reset(seed, *, model=None)` and `step(action, *, label=None, model=None)` take the new keywords; the runner only passes them to envs that accept them.
+- OpenAI-compatible policies (`openai`, `local`, `openrouter`) accept `extra_body` (merged into the request JSON, e.g. OpenRouter provider pinning), `extra_headers` and `api_key_env`.
+- `train_bc(..., training_events_url=".../sim/training")` and `winners.train.evaluate.evaluate_policy(..., training_events_url=...)` POST per-epoch / eval events (best effort, never fail training).
+- Tests run against a stdlib fake of the server: `tests/fake_sim.py`.
+
 ## Caveats
 - Check each provider's terms on using model outputs to train another model.
 - `load_checkpoint` uses `torch.load(weights_only=False)`; only load checkpoints you trained yourself.

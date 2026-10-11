@@ -40,6 +40,8 @@
       <section id="tab-training" class="tab">
         <div class="hint">A small policy learns from the successful runs, so it can do the task without paying per token.</div>
         <div id="trainstatus" class="status">Waiting for training to start…</div>
+        <canvas id="minimap" width="360" height="300"></canvas>
+        <div class="legend"><span class="l3">learned policy: reached</span><span class="l5">learned policy: failed</span><span class="l4">teacher runs</span></div>
         <canvas id="losschart" width="360" height="170"></canvas>
         <div class="legend"><span class="l1">train loss</span><span class="l2">val loss</span></div>
         <canvas id="evalchart" width="360" height="150"></canvas>

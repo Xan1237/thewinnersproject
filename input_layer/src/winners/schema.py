@@ -59,6 +59,7 @@ class Observation(BaseModel):
 class Action(BaseModel):
     values: list[float]
     meta: dict[str, Any] = Field(default_factory=dict)
+    label: str | None = None  # short human description of the intent, e.g. "raise right arm"
 
 
 class Step(BaseModel):
@@ -72,6 +73,8 @@ class Step(BaseModel):
     latency_s: float = 0.0
     cost_usd: float = 0.0
     flags: list[str] = Field(default_factory=list)
+    label: str | None = None  # the policy's short description of its intent for this step
+    joints: dict[str, float] | None = None  # nested motor data reported by the env (info["joints"])
 
 
 class Episode(BaseModel):

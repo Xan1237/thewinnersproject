@@ -17,7 +17,7 @@ Response: `{"id", "task_description", "action_spec": {"names","low","high","unit
 
 ### `POST /sim/sessions/{id}/step`
 Body: `{"action": [forward, right, turn, interact], "label": "walk toward the armchair", "model": "claude-sonnet"}`.
-Action semantics (all clipped to the spec): `forward`/`right` in [-1,1] are speed fractions of 1.5 m/s relative to the heading; `turn` in [-1,1] is a fraction of 1.5 rad/s; `interact` in [0,1], `> 0.5` means "grab / interact" (only valid next to the station). One step advances the sim by `dt = 0.5` s (internally sub-stepped at 20 ms).
+Action semantics (all clipped to the spec): `forward`/`right` in [-1,1] are speed fractions of 1.5 m/s relative to the heading; `turn` in [-1,1] is a fraction of 1.5 rad/s (positive = turn left, counter-clockwise seen from above; the heading increases); `interact` in [0,1], `> 0.5` means "grab / interact" (only valid next to the station). One step advances the sim by `dt = 0.5` s (internally sub-stepped at 20 ms).
 Response: `{"observation": {"t","state","text"}, "reward": float, "done": bool, "info": {"success": bool, "reason": "...", "position": [x,z], "heading": float, "joints": {name: angle}, "collided": bool}}`.
 
 `info.joints` holds the gait/arm joint angles at the end of the step. This is the "nested motor data" shown beside the label.

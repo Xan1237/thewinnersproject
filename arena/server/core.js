@@ -13,11 +13,11 @@ export const ACTION_SPEC = {
   names: ['forward', 'right', 'turn', 'interact'],
   low: [-1, -1, -1, 0],
   high: [1, 1, 1, 1],
-  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive turns toward +X); interact: >0.5 grabs the coffee cup when within 0.9 m',
+  units: 'forward/right: fraction of 1.5 m/s relative to heading; turn: fraction of 1.5 rad/s (positive = turn LEFT / counter-clockwise seen from above, negative = turn RIGHT); interact: >0.5 grabs the coffee cup when within 0.9 m',
 };
 export const OBSERVATION_SPEC = {
   names: ['x', 'z', 'heading', 'goal_forward', 'goal_right', 'goal_dist', 'holding', 'steps_left_frac'],
-  description: 'x,z in metres (world), heading in radians (0 faces +Z). goal_forward/goal_right: target position in the robot frame (metres). holding: 1 once the coffee cup is in hand.',
+  description: 'x,z in metres (world), heading in radians (0 faces +Z). goal_forward/goal_right: target position in the robot frame (metres; goal_right < 0 means the target is on your left, so turn left = positive turn). holding: 1 once the coffee cup is in hand.',
 };
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -181,15 +181,15 @@ export class Session {
 
   describe(g = this.goalLocal()) {
     const lines = [];
-    lines.push(`You are at x=${this.x.toFixed(2)}, z=${this.z.toFixed(2)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees (0 = +Z, positive turns toward +X).`);
-    lines.push(`Target "${this.spec.target.name}": ${g.forward.toFixed(2)} m ahead, ${g.right.toFixed(2)} m to your right (negative = left), distance ${this.goalDist().toFixed(2)} m.`);
+    lines.push(`You are at x=${this.x.toFixed(2)}, z=${this.z.toFixed(2)}, facing ${(this.heading * 180 / Math.PI).toFixed(0)} degrees.`);
+    lines.push(`Target "${this.spec.target.name}": ${g.forward.toFixed(2)} m ahead, ${Math.abs(g.right).toFixed(2)} m to your ${g.right >= 0 ? 'right' : 'left'}, distance ${this.goalDist().toFixed(2)} m.`);
     if (this.collided) lines.push('Your last move was blocked by an obstacle or wall.');
     if (this.holding) lines.push('You are holding the coffee cup.');
     const near = this.world.objects
       .filter(o => o.solid && o !== this.spec.target)
       .map(o => ({ o, d: Math.hypot(o.x - this.x, o.z - this.z) - Math.max(o.sx, o.sz) / 2 }))
       .filter(e => e.d < 2.5).sort((a, b) => a.d - b.d).slice(0, 5)
-      .map(({ o, d }) => { const l = this.goalLocal(o); return `${o.name} (${l.forward.toFixed(1)} ahead, ${l.right.toFixed(1)} right, ${Math.max(d, 0).toFixed(1)} m away)`; });
+      .map(({ o, d }) => { const l = this.goalLocal(o); return `${o.name} (${l.forward.toFixed(1)} m ahead, ${Math.abs(l.right).toFixed(1)} ${l.right >= 0 ? 'right' : 'left'}, ${Math.max(d, 0).toFixed(1)} m away)`; });
     if (near.length) lines.push(`Nearby obstacles: ${near.join('; ')}.`);
     lines.push(`Room: x from ${this.world.bounds.minX} to ${this.world.bounds.maxX}, z from ${this.world.bounds.minZ} to ${this.world.bounds.maxZ}.`);
     return lines.join(' ');
