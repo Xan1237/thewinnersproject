@@ -82,3 +82,11 @@ policies:
     orchestrator_extra_body: {reasoning: {enabled: false}, provider: {only: ["cerebras"], allow_fallbacks: false}}
     price_in: 0.04
     price_out: 2.3
+
+# `python -m winners.show`: robots that never stop (see winners/show.py)
+show:
+  pause_s: 3                # a robot stands still this long after finishing a routine
+  hold_after_order_s: 12    # ... and this long after a spoken order, so the room can see it
+  bootstrap_episodes: 6     # scripted runs per routine on the data farm before the first training
+  first_round_wins: 10      # frontier wins needed before the first training round
+  retrain_every_wins: 25    # then retrain after this many new frontier wins

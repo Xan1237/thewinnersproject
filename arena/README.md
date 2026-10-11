@@ -64,3 +64,7 @@ The mic button records, the browser converts to 16 kHz WAV, and the sim server c
 ## Labeled data
 
 Every episode is written to `arena/data/<model>/<NNNN>-<task>-<result>.json` (git-ignored; `ARENA_DATA_DIR` overrides): per step the state, the text the model saw, its action, label, plan, Jev odds, latency and cost. The "Labeled data" button in the viewer lists the folders and downloads one episode, one model as `.jsonl`, or everything as one `.json`. The trained policy's weights are saved next to it as `model.json`.
+
+## The show (`python -m winners.show`)
+
+Robots never stop: each frontier model works through little routines ("grab a coffee, then sit", "walk to the lectern and wave"), told only an instruction in plain words and what it can see. A spoken or typed order interrupts all of them. Scripted teachers bootstrap the data on the farm sim, a small network is trained on all winning runs, and a gold robot with the trained model joins the room; it is retrained as more winners arrive.

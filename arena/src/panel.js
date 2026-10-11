@@ -128,9 +128,9 @@ export class Panel {
     const t = this.training;
     if (ev.phase === 'collect') t.status = `Step 1 · ${ev.models} frontier models are playing ${ev.total} runs. Every decision is recorded as labeled data.`;
     else if (ev.phase === 'topup') t.status = `Step 1b · scripted teachers add ${ev.total} cheap runs on a second sim.`;
-    else if (ev.phase === 'start') { t.epochs = []; t.evals = []; t.status = `Training started · ${ev.episodes ?? '?'} successful episodes (${ev.from_llm ?? '?'} from LLMs, ${ev.from_scripted ?? '?'} scripted), ${ev.samples ?? '?'} samples`; t.info = ev; }
+    else if (ev.phase === 'start') { t.epochs = []; if (!ev.round || ev.round === 1) t.evals = []; t.status = `Training ${ev.round > 1 ? `round ${ev.round}` : 'started'} · ${ev.episodes ?? '?'} successful episodes (${ev.from_llm ?? '?'} from LLMs, ${ev.from_scripted ?? '?'} scripted), ${ev.samples ?? '?'} samples`; t.info = ev; }
     else if (ev.phase === 'epoch') { t.epochs.push(ev); t.status = `Training · epoch ${ev.epoch} · loss ${Number(ev.loss).toFixed(4)}`; }
-    else if (ev.phase === 'eval') { t.evals.push(ev); t.status = `Evaluated learned policy: ${(100 * ev.success_rate).toFixed(0)}% success over ${ev.n} episodes`; }
+    else if (ev.phase === 'eval') { t.evals.push(ev); if (t.evals.length > 80) t.evals.shift(); t.status = `Evaluated learned policy: ${(100 * ev.success_rate).toFixed(0)}% success over ${ev.n} episodes`; }
     else if (ev.phase === 'done') { t.status = `Training finished · ${ev.checkpoint ?? ''}`; t.info = { ...t.info, ...ev }; }
     $('trainstatus').textContent = t.status;
     const teachers = [...this.models.entries()].filter(([m]) => kindOf(m) !== 'trained').map(([m, s]) => `${esc(m)} ${s.runs ? Math.round(100 * s.wins / s.runs) + '%' : '–'}`).join(' · ');

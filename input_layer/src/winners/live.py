@@ -11,6 +11,7 @@ whatever the agents are doing. Every attempt is recorded like an arena episode.
 from __future__ import annotations
 
 import argparse
+import random
 import threading
 import time
 from pathlib import Path
@@ -49,22 +50,61 @@ class _Orders:
         return cmd.get("task") or None
 
 
-def agent_loop(policy, env_cfg: dict, run_cfg: dict, index: int, stop: threading.Event, sink) -> None:
+def agent_loop(
+    policy,
+    env_cfg: dict,
+    run_cfg: dict,
+    index: int,
+    stop: threading.Event,
+    sink,
+    routines: list[str] | None = None,
+    pause_s: float = 3.0,
+    hold_after_order_s: float = 12.0,
+    ready: threading.Event | None = None,
+) -> None:
+    """One robot, one agent. Spoken orders always win; between orders the robot works through
+    `routines` (little tasks like "grab a coffee, then sit") so the room never goes quiet."""
     env = build_env_factory({**env_cfg, "task": "idle"})()
     env.reset(seed=index + 1, model=policy.name)  # the robot appears and waits
     orders = _Orders(env)
+    rng = random.Random(index * 7919 + 5)
+    last_routine = None
     seed = 1000 * (index + 1)
     task = None
+    instruction = None
+    from_order = False
+
+    def pause(seconds: float) -> None:
+        """Stand there for a moment (so the animation can be seen) unless a new order comes in."""
+        nonlocal task, instruction, from_order
+        end = time.monotonic() + seconds
+        while not stop.is_set() and time.monotonic() < end:
+            new = orders.new_task()
+            if new:
+                task, instruction, from_order = new, orders.text or None, True
+                return
+            time.sleep(0.2)
+
+    if ready is not None:
+        ready.wait()
     while not stop.is_set():
-        task = task or orders.new_task()
+        if not task:
+            new = orders.new_task()
+            if new:
+                task, instruction, from_order = new, orders.text or None, True
+            elif routines:
+                choices = [r for r in routines if r != last_routine] or routines
+                task = last_routine = rng.choice(choices)
+                instruction, from_order = None, False
         if not task:
             time.sleep(0.2)
             continue
         try:
-            env.retask(task, instruction=orders.text or None)
-        except Exception as exc:  # e.g. no free chair left: report and wait for the next order
+            env.retask(task, instruction=instruction)
+        except Exception as exc:  # e.g. no free chair left: report and carry on
             print(f"[{policy.name}] cannot do {task!r}: {exc}")
             task = None
+            time.sleep(1.0)
             continue
         task = None
         seed += 1
@@ -81,8 +121,12 @@ def agent_loop(policy, env_cfg: dict, run_cfg: dict, index: int, stop: threading
         if ep.steps:
             sink(ep)
         task = ep.meta.get("next_task")
+        if task:
+            instruction, from_order = orders.text or None, True
         verdict = "interrupted" if ep.meta.get("interrupted") else ("done" if ep.success else "failed")
         print(f"[{policy.name}] {ep.task[:50]!r}: {verdict} after {len(ep.steps)} steps")
+        if not task:
+            pause(hold_after_order_s if from_order else pause_s)
     env.close()
 
 

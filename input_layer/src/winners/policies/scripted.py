@@ -51,7 +51,7 @@ class GoalSeekPolicy:
         noise: float = 0.0,
         seed: int = 0,
         turn_gain: float = 1.5,
-        interact_dist: float = 0.7,
+        interact_dist: float = 0.95,
     ):
         self.name = name
         self.noise = noise

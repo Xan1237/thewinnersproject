@@ -180,7 +180,17 @@ export class World {
 
 /** The shared scenario every agent gets: two stages, no object ids, the agent has to read the room. */
 export const TALK_INSTRUCTION = "You just arrived for the talk. Grab yourself a coffee, then find a free seat in the audience and sit down.";
-export const SCENARIOS = { talk: ['fetch_coffee', 'sit'] };
+/** Little routines the robots work through: each is a few parts and one instruction in plain words. */
+export const SCENARIOS = {
+  talk: { plan: ['fetch_coffee', 'sit'], instruction: TALK_INSTRUCTION },
+  lectern_wave: { plan: ['goto:lectern', 'wave'], instruction: 'Walk over to the white lectern and wave at the room.' },
+  plant_coffee: { plan: ['goto:plant_tall', 'fetch_coffee'], instruction: 'Take a look at the tall plant by the wall, then go and grab a coffee.' },
+  coffee_lectern: { plan: ['fetch_coffee', 'goto:lectern'], instruction: 'Grab a coffee and bring it up to the lectern.' },
+  armchair: { plan: ['sit:armchair_blue'], instruction: 'Go up on the stage and sit in the big blue armchair.' },
+  speaker_dance: { plan: ['goto:speaker_stand', 'dance'], instruction: 'Go over to the speaker on its stand and dance a little.' },
+  tripod_jump: { plan: ['goto:tripod', 'jump'], instruction: 'Walk to the camera tripod and jump for the camera.' },
+  column_seat: { plan: ['goto:blue_column', 'sit'], instruction: 'Check out the blue column near the stage, then take a seat in the audience.' },
+};
 
 /** What an object looks like to the robots. They never see ids, only these plain words. */
 const LABELS = {
@@ -195,7 +205,7 @@ export function labelOf(o) {
   return o.name;
 }
 
-export const TASK_HELP = 'talk (coffee, then a free seat) | goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle';
+export const TASK_HELP = `${Object.keys(SCENARIOS).join(' | ')} (little routines) | goto:<object id> | fetch_coffee | sit (any free chair) | sit:<chair id> | jump | wave | dance | cheer | idle`;
 
 /** `ctx.claimed`: seat ids other robots already sit in or walk to. `ctx.from`: where the robot is now. */
 export function resolveTask(world, task, ctx = {}) {
@@ -246,10 +256,10 @@ export class Session {
     this.model = model;
     this.maxSteps = maxSteps;
     this.task = task;
-    this.plan = SCENARIOS[task] ?? [task];
+    this.plan = SCENARIOS[task]?.plan ?? [task];
     this.stage = 0;
     // With an instruction the robot is "blind": it gets the words and a view of the room, not the target.
-    this.instruction = instruction ?? (SCENARIOS[task] ? TALK_INSTRUCTION : null);
+    this.instruction = instruction ?? SCENARIOS[task]?.instruction ?? null;
     const rand = mulberry32(seed * 7919 + 13);
     const first = resolveTask(world, this.plan[0], { claimed });
     const start = world.startPose(rand, first.target);
@@ -276,9 +286,9 @@ export class Session {
 
   /** Give the robot a new task where it stands (voice commands). `claimed`: chairs other robots hold. */
   retask(task, claimed, instruction = null) {
-    this.plan = SCENARIOS[task] ?? [task];
+    this.plan = SCENARIOS[task]?.plan ?? [task];
     this.stage = 0;
-    this.instruction = instruction ?? (SCENARIOS[task] ? TALK_INSTRUCTION : null);
+    this.instruction = instruction ?? SCENARIOS[task]?.instruction ?? null;
     this.spec = resolveTask(this.world, this.plan[0], { claimed, from: { x: this.x, z: this.z } });
     this.task = task;
     this.t = 0;
