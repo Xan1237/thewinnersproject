@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>The Winners Project · Arena</title>
+  <title>datanode · Robot Arena</title>
 </head>
 <body>
   <div id="app">
     <main id="stage">
       <header class="topbar">
-        <div class="brand">The Winners Project <span>/</span> Arena</div>
+        <div class="brand">datanode <span>/</span> Robot Arena</div>
         <div class="views">
           <button data-view="overview" class="selected">Overview</button>
           <button data-view="stage">Stage</button>
           <button data-view="follow">Follow</button>
+          <label>Robot <select id="follow-model" aria-label="Follow robot"><option value="">Auto</option></select></label>
           <button id="databtn">Labeled data</button>
           <label>Speed
             <select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>

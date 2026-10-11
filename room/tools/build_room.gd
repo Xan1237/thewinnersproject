@@ -374,10 +374,10 @@ func _build_screen_wall_details() -> void:
 	inst(model("projector_screen"), g, Vector3(sx, top_y, sz), 180.0, "ProjectorScreen")
 	# Slide on the screen surface (4.0 x 2.25 m, centre 1.425 m below the case top)
 	var slide := StandardMaterial3D.new()
-	slide.albedo_texture = load("res://assets/slide.jpg")
+	slide.albedo_texture = load("res://assets/datanode-slide.svg")
 	slide.albedo_color = Color(0.2, 0.2, 0.2)
 	slide.emission_enabled = true
-	slide.emission_texture = load("res://assets/slide.jpg")
+	slide.emission_texture = load("res://assets/datanode-slide.svg")
 	slide.emission_energy_multiplier = 0.8
 	slide.roughness = 0.6
 	var q := MeshInstance3D.new()

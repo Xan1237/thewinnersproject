@@ -34,12 +34,14 @@ const VIEWS = {
   stage: { pos: [0.4, 2.0, 1.6], target: [0.4, 1.2, -4.0] },
 };
 function setView(name) {
-  document.querySelectorAll('.views button').forEach(b => b.classList.toggle('selected', b.dataset.view === name));
+  document.querySelectorAll('.views button[data-view]').forEach(b => b.classList.toggle('selected', b.dataset.view === name));
   view = name;
   if (VIEWS[name]) { camera.position.set(...VIEWS[name].pos); controls.target.set(...VIEWS[name].target); }
 }
 let view = 'overview';
-document.querySelectorAll('.views button').forEach(b => b.onclick = () => setView(b.dataset.view));
+document.querySelectorAll('.views button[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+let followModel = '';
+$('follow-model').onchange = e => { followModel = e.target.value; setView('follow'); };
 let speed = 1;
 $('speed').onchange = e => { speed = Number(e.target.value); };
 
@@ -71,7 +73,7 @@ let manifest;
 async function loadRoom() {
   const [gltf, man] = await Promise.all([loader.loadAsync('/room/room.glb'), fetch('/room/manifest.json').then(r => r.json())]);
   manifest = man;
-  const slide = new THREE.TextureLoader().load('/room/slide.jpg'); slide.colorSpace = THREE.SRGBColorSpace;
+  const slide = new THREE.TextureLoader().load('/room/datanode-slide.svg'); slide.colorSpace = THREE.SRGBColorSpace;
   slide.flipY = false;  // the quad's UVs follow the glTF convention (v = 0 at the top)
   gltf.scene.traverse(n => {
     if (n.name === 'Ceiling' || n.name === 'WallSouth') n.visible = false;  // keep the view into the room open
@@ -120,6 +122,10 @@ function applyActor(ev) {
   if (ev.type === 'session_started') {
     const prev = actors.get(ev.session); if (prev) prev.dispose();
     actors.set(ev.session, new Actor(template, scene, ev, { color: panel.color(ev.model), model: ev.model, cupFactory: makeCup }));
+    if (![...$('follow-model').options].some(o => o.value === ev.model)) {
+      const option = document.createElement('option'); option.value = ev.model; option.textContent = ev.model;
+      $('follow-model').append(option);
+    }
   } else if (ev.type === 'step') {
     actors.get(ev.session)?.enqueue(ev);
   } else if (ev.type === 'task_changed') {
@@ -131,6 +137,7 @@ function applyActor(ev) {
   } else if (ev.type === 'reset') {
     for (const a of actors.values()) a.dispose();
     actors.clear();
+    $('follow-model').replaceChildren(new Option('Auto', '')); followModel = '';
   }
 }
 
@@ -143,7 +150,8 @@ function frame() {
     if (a.ended && a.lag <= 0) { a.idleFor = (a.idleFor ?? 0) + dt; if (a.idleFor > 6) { a.dispose(); actors.delete(id); } }
   }
   if (view === 'follow') {
-    const a = [...actors.values()].filter(x => x.finished == null).at(-1) || [...actors.values()].at(-1);
+    const candidates = [...actors.values()].filter(a => !followModel || a.model === followModel);
+    const a = candidates.filter(x => x.finished == null).at(-1) || candidates.at(-1);
     if (a) {
       const p = a.g1.group.position;
       controls.target.lerp(new THREE.Vector3(p.x, 1.0, p.z), 0.1);
