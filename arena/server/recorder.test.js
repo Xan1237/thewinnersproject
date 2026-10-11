@@ -45,3 +45,21 @@ test('episodes are recorded per model folder and served as labeled data', async 
     assert.ok(existsSync(join(dataDir, 'learned-bc', 'model.json')));
   } finally { server.close(); }
 });
+
+test('a viewer that joins late still gets every live robot (session events outlive step events)', async () => {
+  const { server } = createServer({ dataDir: mkdtempSync(join(tmpdir(), 'arena-data-')) });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (p, b) => fetch(base + p, { method: 'POST', body: JSON.stringify(b) }).then(r => r.json());
+  try {
+    const s = await post('/sim/sessions', { task: 'idle', seed: 1, model: 'late-test', max_steps: 100000 });
+    for (let i = 0; i < 2700; i++) await post(`/sim/sessions/${s.id}/step`, { action: [0, 0, 0, 0] });
+    const ctrl = new AbortController();
+    const res = await fetch(`${base}/sim/events`, { signal: ctrl.signal });
+    const reader = res.body.getReader();
+    let text = '';
+    while (!text.includes('"type":"step"') || text.length < 4000) { const { value, done } = await reader.read(); if (done) break; text += new TextDecoder().decode(value); }
+    ctrl.abort();
+    assert.match(text, /"type":"session_started"/);
+  } finally { server.closeAllConnections?.(); server.close(); }
+});

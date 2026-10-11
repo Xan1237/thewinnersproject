@@ -12,7 +12,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 64 * 1024;
 const MAX_AUDIO = 8 * 1024 * 1024;
 const MAX_SESSIONS = 64;
-const HISTORY = 2000;
+const HISTORY = 2500;        // recent step events kept for late joiners
+const META_HISTORY = 8000;   // everything else (sessions, training, orders...) is kept far longer, or late joiners see no robots
 
 export function createServer({ manifestPath = join(here, '..', 'public', 'room', 'manifest.json'), dataDir = process.env.ARENA_DATA_DIR ?? join(here, '..', 'data') } = {}) {
   const rec = new Recorder(dataDir);
@@ -20,7 +21,9 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
   const world = new World(JSON.parse(readFileSync(manifestPath, 'utf8')));
   const sessions = new Map();
   const clients = new Set();
-  const history = [];
+  const history = [];   // step events
+  const meta = [];      // all other events
+  let seq = 0;
   let nextId = 1;
   let command = { id: 0 };   // latest operator order, polled by the agents (GET /sim/command)
   world.peers = () => sessions.values();
@@ -29,8 +32,10 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
 
   const broadcast = event => {
     event.ts = Date.now();
-    history.push(event);
-    if (history.length > HISTORY) history.shift();
+    event.seq = ++seq;
+    const ring = event.type === 'step' ? history : meta;
+    ring.push(event);
+    if (ring.length > (ring === history ? HISTORY : META_HISTORY)) ring.shift();
     const data = `data: ${JSON.stringify(event)}\n\n`;
     for (const res of clients) res.write(data);
   };
@@ -82,7 +87,7 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
         res.write(': connected\n\n');
         const replay = url.searchParams.get('replay') !== '0';
-        if (replay) for (const e of history) res.write(`data: ${JSON.stringify(e)}\n\n`);
+        if (replay) for (const e of [...meta, ...history].sort((a, b) => a.seq - b.seq)) res.write(`data: ${JSON.stringify(e)}\n\n`);
         clients.add(res);
         req.on('close', () => clients.delete(res));
         return;
@@ -117,7 +122,7 @@ export function createServer({ manifestPath = join(here, '..', 'public', 'room',
       }
       if (req.method === 'POST' && path === '/sim/reset') {
         rec.open.clear();
-        sessions.clear(); history.length = 0;
+        sessions.clear(); history.length = 0; meta.length = 0;
         broadcast({ type: 'reset' });
         return send(res, 200, { ok: true });
       }
